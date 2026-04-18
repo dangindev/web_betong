@@ -105,7 +105,7 @@ def apply_scope_filters(model: type, query, scope: ScopeContext):
             return query.where(false())
         return query.where(getattr(model, "business_unit_id").in_(sorted(scope.business_unit_ids)))
 
-    for plant_column in ("plant_id", "home_plant_id", "default_plant_id"):
+    for plant_column in ("plant_id", "home_plant_id", "default_plant_id", "assigned_plant_id"):
         if _has_column(model, plant_column):
             if not scope.plant_ids:
                 return query.where(false())
@@ -124,7 +124,7 @@ def payload_in_scope(model: type, payload: dict[str, Any], scope: ScopeContext) 
 
     referenced_plant_ids = {
         str(payload[column_name])
-        for column_name in ("plant_id", "home_plant_id", "default_plant_id")
+        for column_name in ("plant_id", "home_plant_id", "default_plant_id", "assigned_plant_id")
         if payload.get(column_name)
     }
     if referenced_plant_ids:
@@ -143,7 +143,7 @@ def row_in_scope(model: type, row: Any, scope: ScopeContext) -> bool:
 
     row_plant_ids = {
         str(getattr(row, column_name))
-        for column_name in ("plant_id", "home_plant_id", "default_plant_id")
+        for column_name in ("plant_id", "home_plant_id", "default_plant_id", "assigned_plant_id")
         if getattr(row, column_name, None)
     }
     if row_plant_ids:

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     refresh_token_exp_days: int = 14
 
     sentry_dsn: str = ""
+    cors_allow_origins: str = "*"
     upload_dir: str = "/root/web_betong/backend/uploads"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

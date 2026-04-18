@@ -39,6 +39,15 @@ REQUIRED_FIELDS: dict[str, list[str]] = {
     "project_sites": ["organization_id", "customer_id", "code", "site_name", "address_line"],
     "vehicles": ["organization_id", "plate_no"],
     "materials": ["organization_id", "code", "name"],
+    "price_rules": ["price_book_id", "rule_type", "rule_name"],
+    "pour_requests": [
+        "organization_id",
+        "request_no",
+        "customer_id",
+        "site_id",
+        "concrete_product_id",
+        "requested_volume_m3",
+    ],
 }
 
 

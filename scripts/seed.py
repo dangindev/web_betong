@@ -12,6 +12,8 @@ from app.domain.models import (
     Organization,
     Permission,
     Plant,
+    PriceBook,
+    PriceRule,
     Pump,
     Role,
     RolePermission,
@@ -38,6 +40,38 @@ DEFAULT_MODULES = [
     "mix_designs",
     "system_settings",
     "attachments",
+    "price_books",
+    "price_rules",
+    "quotations",
+    "quotation_items",
+    "sales_orders",
+    "pour_requests",
+    "pour_request_time_windows",
+    "price_calculation_snapshots",
+    "operational_shifts",
+    "vehicle_availabilities",
+    "pump_availabilities",
+    "resource_locks",
+    "plant_capacity_slots",
+    "travel_estimates",
+    "schedule_runs",
+    "dispatch_orders",
+    "scheduled_trips",
+    "schedule_conflicts",
+    "schedule_versions",
+    "manual_overrides",
+    "trips",
+    "trip_events",
+    "pump_sessions",
+    "pump_events",
+    "batch_tickets",
+    "batch_ticket_components",
+    "gps_pings",
+    "notifications",
+    "offline_sync_queue",
+    "event_ingestions",
+    "reconciliation_records",
+    "daily_kpi_snapshots",
 ]
 DEFAULT_ACTIONS = ["read", "write", "delete"]
 
@@ -315,6 +349,101 @@ def _seed_assets(db, org_id: str, bu_id: str) -> None:
         db.add(product)
 
 
+def _seed_phase2_pricing(db, org_id: str) -> None:
+    price_book = db.execute(
+        select(PriceBook).where(PriceBook.code == "PB_STD", PriceBook.organization_id == org_id)
+    ).scalar_one_or_none()
+    if price_book is None:
+        price_book = PriceBook(
+            organization_id=org_id,
+            code="PB_STD",
+            name="Standard Price Book",
+            status="active",
+            priority=10,
+            effective_from=datetime.now(tz=timezone.utc),
+        )
+        db.add(price_book)
+        db.flush()
+
+    desired_rules = [
+        {
+            "rule_type": "BasePrice",
+            "rule_name": "Base Price Standard",
+            "priority": 100,
+            "condition_json": {},
+            "formula_json": {"mode": "fixed", "value": 1200000},
+        },
+        {
+            "rule_type": "DistanceFee",
+            "rule_name": "Distance Fee/km",
+            "priority": 90,
+            "condition_json": {"field": "distance_km", "op": "gt", "value": 0},
+            "formula_json": {"mode": "per_km", "field": "distance_km", "rate": 15000},
+        },
+        {
+            "rule_type": "DifficultyFee",
+            "rule_name": "Difficulty Fee",
+            "priority": 80,
+            "condition_json": {"field": "difficulty_level", "op": "in", "value": ["normal", "hard"]},
+            "formula_json": {
+                "mode": "difficulty_map",
+                "field": "difficulty_level",
+                "mapping": {"easy": 0, "normal": 30000, "hard": 80000},
+                "default": 0,
+            },
+        },
+        {
+            "rule_type": "PumpFee",
+            "rule_name": "Pump Fee",
+            "priority": 70,
+            "condition_json": {"field": "requires_pump", "op": "truthy", "value": True},
+            "formula_json": {"mode": "boolean", "field": "requires_pump", "true_value": 180000, "false_value": 0},
+        },
+        {
+            "rule_type": "Surcharge",
+            "rule_name": "Manual Surcharge",
+            "priority": 60,
+            "condition_json": {},
+            "formula_json": {"mode": "passthrough", "field": "surcharge_amount"},
+        },
+        {
+            "rule_type": "Discount",
+            "rule_name": "Manual Discount",
+            "priority": 50,
+            "condition_json": {},
+            "formula_json": {"mode": "passthrough", "field": "discount_amount"},
+        },
+    ]
+
+    existing_rules = {
+        rule.rule_name: rule
+        for rule in db.execute(select(PriceRule).where(PriceRule.price_book_id == price_book.id)).scalars().all()
+    }
+
+    for desired in desired_rules:
+        rule = existing_rules.get(desired["rule_name"])
+        if rule is None:
+            db.add(
+                PriceRule(
+                    price_book_id=price_book.id,
+                    rule_type=desired["rule_type"],
+                    rule_name=desired["rule_name"],
+                    condition_json=desired["condition_json"],
+                    formula_json=desired["formula_json"],
+                    priority=desired["priority"],
+                    is_active=True,
+                )
+            )
+            continue
+
+        rule.rule_type = desired["rule_type"]
+        rule.condition_json = desired["condition_json"]
+        rule.formula_json = desired["formula_json"]
+        rule.priority = desired["priority"]
+        rule.is_active = True
+        db.add(rule)
+
+
 def _seed_settings(db, org_id: str) -> None:
     existing = db.execute(
         select(SystemSetting).where(
@@ -349,6 +478,7 @@ def run() -> None:
         role = _seed_permissions_and_role(db, org.id)
         _seed_admin_user(db, org.id, role.id, bu.id)
         _seed_assets(db, org.id, bu.id)
+        _seed_phase2_pricing(db, org.id)
         _seed_settings(db, org.id)
 
         db.commit()

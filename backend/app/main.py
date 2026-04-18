@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.audit_middleware import AuditLogMiddleware
@@ -29,6 +30,13 @@ app = FastAPI(
 
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(AuditLogMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in settings.cors_allow_origins.split(",") if origin.strip()] or ["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(api_router)
 app.add_exception_handler(Exception, generic_error_handler)
 app.add_exception_handler(ValueError, api_error_handler)

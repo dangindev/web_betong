@@ -330,6 +330,517 @@ class MixDesignComponent(TimestampMixin, Base):
     loss_factor_pct: Mapped[float | None] = mapped_column(Numeric(18, 3))
 
 
+class PriceBook(TimestampMixin, Base):
+    __tablename__ = "price_books"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    region_scope: Mapped[str | None] = mapped_column(String(128))
+    customer_scope: Mapped[str | None] = mapped_column(String(128))
+    effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PriceRule(TimestampMixin, Base):
+    __tablename__ = "price_rules"
+
+    price_book_id: Mapped[str] = mapped_column(ForeignKey("price_books.id"), nullable=False)
+    rule_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    rule_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    condition_json: Mapped[dict | list | None] = mapped_column(JSON)
+    formula_json: Mapped[dict | list | None] = mapped_column(JSON)
+    scope_region: Mapped[str | None] = mapped_column(String(128))
+    scope_customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id"))
+    scope_plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Quotation(TimestampMixin, Base):
+    __tablename__ = "quotations"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("project_sites.id"))
+    quotation_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    price_book_id: Mapped[str | None] = mapped_column(ForeignKey("price_books.id"))
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    notes: Mapped[str | None] = mapped_column(Text)
+    discount_override_pct: Mapped[float | None] = mapped_column(Numeric(8, 3))
+    discount_override_amount: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    approval_status: Mapped[str] = mapped_column(String(32), default="pending")
+    approved_by: Mapped[str | None] = mapped_column(String(36))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_note: Mapped[str | None] = mapped_column(Text)
+
+
+class QuotationItem(TimestampMixin, Base):
+    __tablename__ = "quotation_items"
+
+    quotation_id: Mapped[str] = mapped_column(ForeignKey("quotations.id"), nullable=False)
+    concrete_product_id: Mapped[str] = mapped_column(ForeignKey("concrete_products.id"), nullable=False)
+    quoted_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    distance_km: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    difficulty_level: Mapped[str | None] = mapped_column(String(64))
+    requires_pump: Mapped[bool] = mapped_column(Boolean, default=False)
+    base_price: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    distance_fee: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    difficulty_fee: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    pump_fee: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    surcharge_fee: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    discount_fee: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    final_unit_price: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    total_amount: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    pricing_snapshot_json: Mapped[dict | list | None] = mapped_column(JSON)
+
+
+class SalesOrder(TimestampMixin, Base):
+    __tablename__ = "sales_orders"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("project_sites.id"))
+    quotation_id: Mapped[str | None] = mapped_column(ForeignKey("quotations.id"))
+    order_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    contract_no: Mapped[str | None] = mapped_column(String(64))
+    ordered_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    payment_terms_days: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class PourRequest(TimestampMixin, Base):
+    __tablename__ = "pour_requests"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    sales_order_id: Mapped[str | None] = mapped_column(ForeignKey("sales_orders.id"))
+    request_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    site_id: Mapped[str] = mapped_column(ForeignKey("project_sites.id"), nullable=False)
+    concrete_product_id: Mapped[str] = mapped_column(ForeignKey("concrete_products.id"), nullable=False)
+    assigned_plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    requested_volume_m3: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
+    requested_date: Mapped[datetime | None] = mapped_column(Date)
+    requested_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    requested_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pour_method: Mapped[str | None] = mapped_column(String(64))
+    requires_pump: Mapped[bool] = mapped_column(Boolean, default=False)
+    expected_pump_type: Mapped[str | None] = mapped_column(String(64))
+    difficulty_level: Mapped[str | None] = mapped_column(String(64))
+    site_contact_name: Mapped[str | None] = mapped_column(String(255))
+    site_contact_phone: Mapped[str | None] = mapped_column(String(32))
+    special_constraints_json: Mapped[dict | list | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+
+
+class PourRequestTimeWindow(TimestampMixin, Base):
+    __tablename__ = "pour_request_time_windows"
+
+    pour_request_id: Mapped[str] = mapped_column(ForeignKey("pour_requests.id"), nullable=False)
+    window_start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    window_end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PriceCalculationSnapshot(TimestampMixin, Base):
+    __tablename__ = "price_calculation_snapshots"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    price_book_id: Mapped[str | None] = mapped_column(ForeignKey("price_books.id"))
+    input_snapshot_json: Mapped[dict | list | None] = mapped_column(JSON)
+    result_snapshot_json: Mapped[dict | list | None] = mapped_column(JSON)
+    final_unit_price: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    calculated_by: Mapped[str | None] = mapped_column(String(36))
+
+
+class OperationalShift(TimestampMixin, Base):
+    __tablename__ = "operational_shifts"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    business_unit_id: Mapped[str | None] = mapped_column(ForeignKey("business_units.id"))
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    shift_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    shift_date: Mapped[datetime | None] = mapped_column(Date)
+    shift_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    shift_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+
+
+class VehicleAvailability(TimestampMixin, Base):
+    __tablename__ = "vehicle_availabilities"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    vehicle_id: Mapped[str] = mapped_column(ForeignKey("vehicles.id"), nullable=False)
+    shift_date: Mapped[datetime | None] = mapped_column(Date)
+    shift_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    shift_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    reason: Mapped[str | None] = mapped_column(Text)
+
+
+class PumpAvailability(TimestampMixin, Base):
+    __tablename__ = "pump_availabilities"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    pump_id: Mapped[str] = mapped_column(ForeignKey("pumps.id"), nullable=False)
+    shift_date: Mapped[datetime | None] = mapped_column(Date)
+    shift_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    shift_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    reason: Mapped[str | None] = mapped_column(Text)
+
+
+class ResourceLock(TimestampMixin, Base):
+    __tablename__ = "resource_locks"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    lock_scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    lock_ref_id: Mapped[str | None] = mapped_column(String(36))
+    field_name: Mapped[str | None] = mapped_column(String(64))
+    reason: Mapped[str | None] = mapped_column(Text)
+    locked_by: Mapped[str | None] = mapped_column(String(36))
+    locked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class PlantCapacitySlot(TimestampMixin, Base):
+    __tablename__ = "plant_capacity_slots"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    plant_id: Mapped[str] = mapped_column(ForeignKey("plants.id"), nullable=False)
+    slot_start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    slot_end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    max_loads: Mapped[int] = mapped_column(Integer, default=1)
+    used_loads: Mapped[int] = mapped_column(Integer, default=0)
+    slot_status: Mapped[str] = mapped_column(String(32), default="open")
+
+
+class TravelEstimate(TimestampMixin, Base):
+    __tablename__ = "travel_estimates"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("project_sites.id"))
+    route_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    distance_km: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+    confidence_pct: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    cached_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ScheduleRun(TimestampMixin, Base):
+    __tablename__ = "schedule_runs"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    run_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_date: Mapped[datetime | None] = mapped_column(Date)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), default="running")
+    algorithm_version: Mapped[str] = mapped_column(String(64), default="heuristic_v1")
+    input_snapshot_json: Mapped[dict | list | None] = mapped_column(JSON)
+    result_summary_json: Mapped[dict | list | None] = mapped_column(JSON)
+    explanation_json: Mapped[dict | list | None] = mapped_column(JSON)
+    created_by: Mapped[str | None] = mapped_column(String(36))
+    manual_override_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DispatchOrder(TimestampMixin, Base):
+    __tablename__ = "dispatch_orders"
+    __table_args__ = (UniqueConstraint("pour_request_id", name="uq_dispatch_orders_pour_request"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    pour_request_id: Mapped[str] = mapped_column(ForeignKey("pour_requests.id"), nullable=False)
+    sales_order_id: Mapped[str | None] = mapped_column(ForeignKey("sales_orders.id"))
+    customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id"))
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("project_sites.id"))
+    assigned_plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    assigned_pump_id: Mapped[str | None] = mapped_column(ForeignKey("pumps.id"))
+    target_truck_rhythm_minutes: Mapped[int | None] = mapped_column(Integer)
+    approval_status: Mapped[str] = mapped_column(String(32), default="pending")
+    approval_note: Mapped[str | None] = mapped_column(Text)
+    approved_by: Mapped[str | None] = mapped_column(String(36))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatch_lock: Mapped[bool] = mapped_column(Boolean, default=False)
+    locked_fields_json: Mapped[dict | list | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+
+
+class ScheduledTrip(TimestampMixin, Base):
+    __tablename__ = "scheduled_trips"
+    __table_args__ = (
+        UniqueConstraint(
+            "schedule_run_id",
+            "dispatch_order_id",
+            "trip_no",
+            name="uq_scheduled_trips_run_dispatch_tripno",
+        ),
+    )
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    schedule_run_id: Mapped[str] = mapped_column(ForeignKey("schedule_runs.id"), nullable=False)
+    dispatch_order_id: Mapped[str] = mapped_column(ForeignKey("dispatch_orders.id"), nullable=False)
+    pour_request_id: Mapped[str | None] = mapped_column(ForeignKey("pour_requests.id"))
+    trip_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    assigned_vehicle_id: Mapped[str | None] = mapped_column(ForeignKey("vehicles.id"))
+    assigned_pump_id: Mapped[str | None] = mapped_column(ForeignKey("pumps.id"))
+    assigned_plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    planned_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    planned_load_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planned_load_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planned_depart_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planned_arrive_site_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planned_pour_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planned_pour_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planned_return_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cycle_minutes: Mapped[int | None] = mapped_column(Integer)
+    priority_score: Mapped[float | None] = mapped_column(Numeric(18, 4))
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    lock_reason: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="assigned")
+
+
+class ScheduleConflict(TimestampMixin, Base):
+    __tablename__ = "schedule_conflicts"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    schedule_run_id: Mapped[str] = mapped_column(ForeignKey("schedule_runs.id"), nullable=False)
+    dispatch_order_id: Mapped[str | None] = mapped_column(ForeignKey("dispatch_orders.id"))
+    conflict_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), default="warning")
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    conflict_payload_json: Mapped[dict | list | None] = mapped_column(JSON)
+    is_resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    resolved_by: Mapped[str | None] = mapped_column(String(36))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ScheduleVersion(TimestampMixin, Base):
+    __tablename__ = "schedule_versions"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    dispatch_order_id: Mapped[str | None] = mapped_column(ForeignKey("dispatch_orders.id"))
+    scheduled_trip_id: Mapped[str | None] = mapped_column(ForeignKey("scheduled_trips.id"))
+    change_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    before_json: Mapped[dict | list | None] = mapped_column(JSON)
+    after_json: Mapped[dict | list | None] = mapped_column(JSON)
+    changed_by: Mapped[str | None] = mapped_column(String(36))
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ManualOverride(TimestampMixin, Base):
+    __tablename__ = "manual_overrides"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    schedule_run_id: Mapped[str | None] = mapped_column(ForeignKey("schedule_runs.id"))
+    dispatch_order_id: Mapped[str | None] = mapped_column(ForeignKey("dispatch_orders.id"))
+    scheduled_trip_id: Mapped[str | None] = mapped_column(ForeignKey("scheduled_trips.id"))
+    override_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    override_payload_json: Mapped[dict | list | None] = mapped_column(JSON)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class Trip(TimestampMixin, Base):
+    __tablename__ = "trips"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    scheduled_trip_id: Mapped[str | None] = mapped_column(ForeignKey("scheduled_trips.id"))
+    dispatch_order_id: Mapped[str | None] = mapped_column(ForeignKey("dispatch_orders.id"))
+    pour_request_id: Mapped[str | None] = mapped_column(ForeignKey("pour_requests.id"))
+    vehicle_id: Mapped[str | None] = mapped_column(ForeignKey("vehicles.id"))
+    pump_id: Mapped[str | None] = mapped_column(ForeignKey("pumps.id"))
+    status: Mapped[str] = mapped_column(String(32), default="assigned")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    actual_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    actual_distance_km: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    delay_reason_code: Mapped[str | None] = mapped_column(String(64))
+
+
+class TripEvent(TimestampMixin, Base):
+    __tablename__ = "trip_events"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "idempotency_key", name="uq_trip_events_org_idem"),
+    )
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    trip_id: Mapped[str] = mapped_column(ForeignKey("trips.id"), nullable=False)
+    scheduled_trip_id: Mapped[str | None] = mapped_column(ForeignKey("scheduled_trips.id"))
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    event_payload_json: Mapped[dict | list | None] = mapped_column(JSON)
+    reported_by_user_id: Mapped[str | None] = mapped_column(String(36))
+    source: Mapped[str] = mapped_column(String(64), default="mobile_driver")
+
+
+class PumpSession(TimestampMixin, Base):
+    __tablename__ = "pump_sessions"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    trip_id: Mapped[str | None] = mapped_column(ForeignKey("trips.id"))
+    scheduled_trip_id: Mapped[str | None] = mapped_column(ForeignKey("scheduled_trips.id"))
+    pump_id: Mapped[str | None] = mapped_column(ForeignKey("pumps.id"))
+    session_status: Mapped[str] = mapped_column(String(32), default="assigned")
+    setup_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pump_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pump_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    teardown_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    actual_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class PumpEvent(TimestampMixin, Base):
+    __tablename__ = "pump_events"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "idempotency_key", name="uq_pump_events_org_idem"),
+    )
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    pump_session_id: Mapped[str] = mapped_column(ForeignKey("pump_sessions.id"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    event_payload_json: Mapped[dict | list | None] = mapped_column(JSON)
+    reported_by_user_id: Mapped[str | None] = mapped_column(String(36))
+    source: Mapped[str] = mapped_column(String(64), default="mobile_pump")
+
+
+class BatchTicket(TimestampMixin, Base):
+    __tablename__ = "batch_tickets"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    trip_id: Mapped[str | None] = mapped_column(ForeignKey("trips.id"))
+    scheduled_trip_id: Mapped[str | None] = mapped_column(ForeignKey("scheduled_trips.id"))
+    ticket_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    vehicle_id: Mapped[str | None] = mapped_column(ForeignKey("vehicles.id"))
+    concrete_product_id: Mapped[str | None] = mapped_column(ForeignKey("concrete_products.id"))
+    load_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    load_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    loaded_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    status: Mapped[str] = mapped_column(String(32), default="open")
+
+
+class BatchTicketComponent(TimestampMixin, Base):
+    __tablename__ = "batch_ticket_components"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    batch_ticket_id: Mapped[str] = mapped_column(ForeignKey("batch_tickets.id"), nullable=False)
+    material_id: Mapped[str | None] = mapped_column(ForeignKey("materials.id"))
+    target_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    actual_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+
+
+class GpsPing(TimestampMixin, Base):
+    __tablename__ = "gps_pings"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    vehicle_id: Mapped[str] = mapped_column(ForeignKey("vehicles.id"), nullable=False)
+    scheduled_trip_id: Mapped[str | None] = mapped_column(ForeignKey("scheduled_trips.id"))
+    pinged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    latitude: Mapped[float] = mapped_column(Numeric(10, 7), nullable=False)
+    longitude: Mapped[float] = mapped_column(Numeric(10, 7), nullable=False)
+    speed_kph: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    heading_deg: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    source: Mapped[str] = mapped_column(String(64), default="mobile_driver")
+
+
+class Notification(TimestampMixin, Base):
+    __tablename__ = "notifications"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    template_code: Mapped[str | None] = mapped_column(String(64))
+    recipient: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload_json: Mapped[dict | list | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    related_entity_type: Mapped[str | None] = mapped_column(String(64))
+    related_entity_id: Mapped[str | None] = mapped_column(String(36))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class OfflineSyncQueue(TimestampMixin, Base):
+    __tablename__ = "offline_sync_queue"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    device_id: Mapped[str | None] = mapped_column(String(128))
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_json: Mapped[dict | list | None] = mapped_column(JSON)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class EventIngestion(TimestampMixin, Base):
+    __tablename__ = "event_ingestions"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "idempotency_key", name="uq_event_ingestions_org_idem"),
+    )
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_payload_json: Mapped[dict | list | None] = mapped_column(JSON)
+    response_payload_json: Mapped[dict | list | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="success")
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ReconciliationRecord(TimestampMixin, Base):
+    __tablename__ = "reconciliation_records"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    pour_request_id: Mapped[str | None] = mapped_column(ForeignKey("pour_requests.id"))
+    dispatch_order_id: Mapped[str | None] = mapped_column(ForeignKey("dispatch_orders.id"))
+    planned_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    actual_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    planned_trip_count: Mapped[int | None] = mapped_column(Integer)
+    actual_trip_count: Mapped[int | None] = mapped_column(Integer)
+    variance_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    variance_trip_count: Mapped[int | None] = mapped_column(Integer)
+    reason_code: Mapped[str | None] = mapped_column(String(64))
+    note: Mapped[str | None] = mapped_column(Text)
+    reconciled_by: Mapped[str | None] = mapped_column(String(36))
+    reconciled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="closed")
+
+
+class DailyKpiSnapshot(TimestampMixin, Base):
+    __tablename__ = "daily_kpi_snapshots"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    snapshot_date: Mapped[datetime | None] = mapped_column(Date)
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    on_time_pct: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    avg_cycle_minutes: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    vehicle_utilization_pct: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    pump_utilization_pct: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    empty_km: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    trips_count: Mapped[int | None] = mapped_column(Integer)
+    volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class SystemSetting(TimestampMixin, Base):
     __tablename__ = "system_settings"
 

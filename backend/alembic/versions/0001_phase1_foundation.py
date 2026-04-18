@@ -15,13 +15,43 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+PHASE1_TABLES = [
+    "organizations",
+    "business_units",
+    "employees",
+    "users",
+    "roles",
+    "permissions",
+    "role_permissions",
+    "user_roles",
+    "user_sessions",
+    "customers",
+    "customer_contacts",
+    "site_access_profiles",
+    "project_sites",
+    "plants",
+    "plant_loading_bays",
+    "vehicle_types",
+    "vehicles",
+    "pumps",
+    "assets",
+    "materials",
+    "concrete_products",
+    "mix_designs",
+    "mix_design_components",
+    "system_settings",
+    "audit_logs",
+    "attachments",
+]
+
 
 def upgrade() -> None:
     bind = op.get_bind()
-    Base.metadata.create_all(bind=bind)
+    for table_name in PHASE1_TABLES:
+        Base.metadata.tables[table_name].create(bind=bind, checkfirst=True)
 
 
 def downgrade() -> None:
     bind = op.get_bind()
-    for table in reversed(Base.metadata.sorted_tables):
-        table.drop(bind=bind, checkfirst=True)
+    for table_name in reversed(PHASE1_TABLES):
+        Base.metadata.tables[table_name].drop(bind=bind, checkfirst=True)
