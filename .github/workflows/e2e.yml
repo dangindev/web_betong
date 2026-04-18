@@ -1,0 +1,12 @@
+name: e2e
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: E2E placeholder
+        run: echo "Add Playwright E2E in Phase 1+"

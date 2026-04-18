@@ -1,0 +1,44 @@
+{
+  "name": "web-betong-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run tests/test_suite.spec.ts",
+    "openapi:types": "openapi-typescript http://localhost:8000/openapi.json -o lib/api/types.ts"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.1.0",
+    "@tanstack/react-query": "^5.62.7",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.468.0",
+    "next": "15.0.3",
+    "next-intl": "^3.22.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-leaflet": "^4.2.1",
+    "tailwind-merge": "^2.5.4",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@sentry/nextjs": "^8.36.0",
+    "@types/leaflet": "^1.9.15",
+    "@types/node": "22.9.0",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "autoprefixer": "10.4.20",
+    "eslint": "9.14.0",
+    "eslint-config-next": "15.0.3",
+    "openapi-typescript": "^7.4.4",
+    "postcss": "8.4.49",
+    "tailwindcss": "3.4.15",
+    "typescript": "5.6.3",
+    "vitest": "2.1.4"
+  }
+}
