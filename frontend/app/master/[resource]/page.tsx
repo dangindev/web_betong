@@ -6,5 +6,5 @@ type MasterResourcePageProps = {
 
 export default async function MasterResourcePage({ params }: MasterResourcePageProps) {
   const { resource } = await params;
-  return <ResourcePage resource={resource} title={`Master: ${resource}`} />;
+  return <ResourcePage resource={resource} />;
 }

@@ -1036,3 +1036,302 @@ def test_phase3_reconciliation_and_kpi_snapshot() -> None:
         )
         assert kpi_response.status_code == 200
         assert kpi_response.json()["daily_kpi_snapshot"]["organization_id"] == TEST_ORG_ID
+
+
+def test_phase4_inventory_and_cost_period_workflow() -> None:
+    with TestClient(app) as client:
+        tokens = _login(client, "admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        plants_response = client.get("/api/v1/resources/plants?skip=0&limit=1", headers=headers)
+        assert plants_response.status_code == 200
+        plant_items = plants_response.json()["items"]
+        assert plant_items
+        plant = plant_items[0]
+        organization_id = str(plant["organization_id"])
+        plant_id = str(plant["id"])
+
+        materials_response = client.get("/api/v1/resources/materials?skip=0&limit=1", headers=headers)
+        assert materials_response.status_code == 200
+        material_items = materials_response.json()["items"]
+        if material_items:
+            material_id = str(material_items[0]["id"])
+        else:
+            created_material = client.post(
+                "/api/v1/resources/materials",
+                headers=headers,
+                json={
+                    "organization_id": organization_id,
+                    "code": f"VT-{uuid4().hex[:6].upper()}",
+                    "name": "Xi măng rời",
+                    "material_type": "cement",
+                    "uom": "kg",
+                    "status": "active",
+                },
+            )
+            assert created_material.status_code == 200
+            material_id = str(created_material.json()["id"])
+
+        warehouse_a_response = client.post(
+            "/api/v1/resources/warehouses",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "plant_id": plant_id,
+                "code": f"KHOA-{uuid4().hex[:4].upper()}",
+                "name": "Kho vật tư chính",
+                "status": "active",
+            },
+        )
+        assert warehouse_a_response.status_code == 200
+        warehouse_a_id = str(warehouse_a_response.json()["id"])
+
+        warehouse_b_response = client.post(
+            "/api/v1/resources/warehouses",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "plant_id": plant_id,
+                "code": f"KHOB-{uuid4().hex[:4].upper()}",
+                "name": "Kho vật tư dự phòng",
+                "status": "active",
+            },
+        )
+        assert warehouse_b_response.status_code == 200
+        warehouse_b_id = str(warehouse_b_response.json()["id"])
+
+        center_response = client.post(
+            "/api/v1/resources/cost_centers",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "code": f"CC-{uuid4().hex[:4].upper()}",
+                "name": "Trung tâm chi phí kiểm thử",
+                "level_no": 1,
+                "status": "active",
+            },
+        )
+        assert center_response.status_code == 200
+        center_id = str(center_response.json()["id"])
+
+        object_response = client.post(
+            "/api/v1/resources/cost_objects",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "cost_center_id": center_id,
+                "code": f"OBJ-{uuid4().hex[:4].upper()}",
+                "name": "Đối tượng chi phí kiểm thử",
+                "object_type": "project",
+                "status": "active",
+            },
+        )
+        assert object_response.status_code == 200
+
+        period_code = f"KY-{uuid4().hex[:6].upper()}"
+        period_response = client.post(
+            "/api/v1/costing/periods",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_code": period_code,
+                "start_date": date.today().isoformat(),
+                "end_date": date.today().isoformat(),
+                "note": "Kỳ chi phí cho test phase 4",
+            },
+        )
+        assert period_response.status_code == 200
+        period_id = str(period_response.json()["period"]["id"])
+
+        open_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/open",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert open_response.status_code == 200
+        assert open_response.json()["period"]["status"] == "open"
+
+        receipt_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "receipt",
+                "warehouse_id": warehouse_a_id,
+                "material_id": material_id,
+                "quantity": 100,
+                "unit_cost": 1000,
+                "reference_no": f"PN-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert receipt_response.status_code == 200
+
+        issue_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "issue",
+                "warehouse_id": warehouse_a_id,
+                "material_id": material_id,
+                "quantity": 20,
+                "reference_no": f"PX-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert issue_response.status_code == 200
+
+        transfer_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "transfer",
+                "warehouse_id": warehouse_a_id,
+                "destination_warehouse_id": warehouse_b_id,
+                "material_id": material_id,
+                "quantity": 10,
+                "reference_no": f"CK-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert transfer_response.status_code == 200
+
+        adjustment_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "adjustment",
+                "warehouse_id": warehouse_a_id,
+                "material_id": material_id,
+                "quantity_delta": -5,
+                "reference_no": f"DC-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert adjustment_response.status_code == 200
+
+        over_issue_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "issue",
+                "warehouse_id": warehouse_a_id,
+                "material_id": material_id,
+                "quantity": 999999,
+                "reference_no": f"PX-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert over_issue_response.status_code == 400
+
+        stock_take_response = client.post(
+            "/api/v1/inventory/stock-takes",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "warehouse_id": warehouse_b_id,
+                "material_id": material_id,
+                "counted_qty": 12,
+                "note": "Kiểm kê cuối ca",
+            },
+        )
+        assert stock_take_response.status_code == 200
+        stock_take_id = str(stock_take_response.json()["stock_take"]["id"])
+
+        ledger_resource_response = client.get(
+            "/api/v1/resources/inventory_ledger_entries?skip=0&limit=1",
+            headers=headers,
+        )
+        assert ledger_resource_response.status_code == 200
+        ledger_items = ledger_resource_response.json()["items"]
+        assert ledger_items
+        ledger_entry_id = str(ledger_items[0]["id"])
+
+        patch_ledger_response = client.patch(
+            f"/api/v1/resources/inventory_ledger_entries/{ledger_entry_id}",
+            headers=headers,
+            json={"balance_after_qty": 9999},
+        )
+        assert patch_ledger_response.status_code == 405
+
+        delete_ledger_response = client.delete(
+            f"/api/v1/resources/inventory_ledger_entries/{ledger_entry_id}",
+            headers=headers,
+        )
+        assert delete_ledger_response.status_code == 405
+
+        patch_stock_take_response = client.patch(
+            f"/api/v1/resources/inventory_stock_takes/{stock_take_id}",
+            headers=headers,
+            json={"counted_qty": 9999},
+        )
+        assert patch_stock_take_response.status_code == 405
+
+        delete_stock_take_response = client.delete(
+            f"/api/v1/resources/inventory_stock_takes/{stock_take_id}",
+            headers=headers,
+        )
+        assert delete_stock_take_response.status_code == 405
+
+        balances_response = client.get(
+            f"/api/v1/inventory/balances?organization_id={organization_id}&material_id={material_id}",
+            headers=headers,
+        )
+        assert balances_response.status_code == 200
+        balances = balances_response.json()["items"]
+
+        balance_by_warehouse = {str(item["warehouse_id"]): float(item["available_qty"]) for item in balances}
+        assert round(balance_by_warehouse.get(warehouse_a_id, 0), 3) == 65
+        assert round(balance_by_warehouse.get(warehouse_b_id, 0), 3) == 12
+
+        checklist_response = client.get(
+            f"/api/v1/costing/periods/{period_id}/preclose-checklist?organization_id={organization_id}",
+            headers=headers,
+        )
+        assert checklist_response.status_code == 200
+        assert checklist_response.json()["checklist"]["ready_to_close"] is True
+
+        close_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/close",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert close_response.status_code == 200
+        assert close_response.json()["period"]["status"] == "closed"
+
+        reopen_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/reopen",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert reopen_response.status_code == 200
+        assert reopen_response.json()["period"]["status"] == "open"
+
+        import_csv = (
+            "warehouse_id,material_id,quantity,unit_cost,reference_no\n"
+            f"{warehouse_a_id},{material_id},5,900,PN-IMPORT-001\n"
+        ).encode("utf-8")
+
+        import_preview_response = client.post(
+            f"/api/v1/inventory/import-receipts?organization_id={organization_id}&dry_run=true",
+            headers=headers,
+            files={"file": ("inventory_receipts.csv", import_csv, "text/csv")},
+        )
+        assert import_preview_response.status_code == 200
+        assert import_preview_response.json()["valid_rows"] == 1
+
+        import_apply_response = client.post(
+            f"/api/v1/inventory/import-receipts?organization_id={organization_id}&dry_run=false",
+            headers=headers,
+            files={"file": ("inventory_receipts.csv", import_csv, "text/csv")},
+        )
+        assert import_apply_response.status_code == 200
+        assert import_apply_response.json()["created"] == 1
+
+        export_response = client.get(
+            f"/api/v1/inventory/export-snapshot?organization_id={organization_id}",
+            headers=headers,
+        )
+        assert export_response.status_code == 200
+        assert export_response.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )

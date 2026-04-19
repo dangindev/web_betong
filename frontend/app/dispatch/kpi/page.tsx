@@ -11,6 +11,12 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function toShortId(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  return text.length > 16 ? `${text.slice(0, 8)}...${text.slice(-4)}` : text;
+}
+
 export default function DispatchKpiPage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const [organizationId, setOrganizationId] = useState("");
@@ -31,7 +37,7 @@ export default function DispatchKpiPage() {
         if (firstOrg) setOrganizationId(firstOrg);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không tải được KPI snapshots.");
+      setError(e instanceof Error ? e.message : "Không tải được ảnh chụp KPI.");
     }
   }
 
@@ -49,7 +55,7 @@ export default function DispatchKpiPage() {
 
   async function handleGenerateSnapshot() {
     if (!accessToken || !organizationId) {
-      setError("Thiếu access token hoặc organization_id.");
+      setError("Thiếu phiên đăng nhập hoặc mã tổ chức (organization_id).");
       return;
     }
     setError(null);
@@ -63,28 +69,28 @@ export default function DispatchKpiPage() {
         },
         accessToken
       );
-      setMessage("Đã tạo KPI snapshot.");
+      setMessage("Đã tạo ảnh chụp KPI.");
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Tạo KPI snapshot thất bại.");
+      setError(e instanceof Error ? e.message : "Tạo ảnh chụp KPI thất bại.");
     }
   }
 
   if (!accessToken) {
-    return <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Bạn cần đăng nhập để dùng KPI dashboard.</div>;
+    return <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Bạn cần đăng nhập để dùng bảng KPI.</div>;
   }
 
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-xl font-semibold">KPI Dashboard (Ops Manager)</h2>
-        <p className="text-sm text-slate-600">Theo dõi on-time, cycle time, utilization, trips/day, volume, và xuất báo cáo.</p>
+        <h2 className="text-xl font-semibold">Bảng KPI vận hành</h2>
+        <p className="text-sm text-slate-600">Theo dõi đúng giờ, vòng quay, mức sử dụng tài nguyên, số chuyến/ngày, sản lượng và xuất báo cáo.</p>
       </div>
 
       <div className="grid gap-2 md:grid-cols-4">
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="organization_id"
+          placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
@@ -96,18 +102,18 @@ export default function DispatchKpiPage() {
         />
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="plant_id (optional)"
+          placeholder="Mã trạm (plant_id, tuỳ chọn)"
           value={plantId}
           onChange={(event) => setPlantId(event.target.value)}
         />
         <button className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500" onClick={() => void handleGenerateSnapshot()}>
-          Generate snapshot
+          Tạo ảnh chụp
         </button>
       </div>
 
       <div className="flex items-center gap-2 text-sm">
         <button className="rounded bg-slate-200 px-3 py-2 hover:bg-slate-300" onClick={() => void load()}>
-          Refresh
+          Làm mới
         </button>
         {organizationId ? (
           <>
@@ -117,7 +123,7 @@ export default function DispatchKpiPage() {
               target="_blank"
               rel="noreferrer"
             >
-              Export operations CSV
+              Xuất báo cáo CSV
             </a>
             <a
               className="rounded border border-slate-300 px-3 py-2 hover:bg-slate-50"
@@ -125,7 +131,7 @@ export default function DispatchKpiPage() {
               target="_blank"
               rel="noreferrer"
             >
-              Export operations PDF
+              Xuất báo cáo PDF
             </a>
           </>
         ) : null}
@@ -140,22 +146,22 @@ export default function DispatchKpiPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
             <tr>
-              <th className="px-3 py-2">Date</th>
-              <th className="px-3 py-2">Plant</th>
-              <th className="px-3 py-2">On-time %</th>
-              <th className="px-3 py-2">Avg cycle</th>
-              <th className="px-3 py-2">Vehicle util %</th>
-              <th className="px-3 py-2">Pump util %</th>
-              <th className="px-3 py-2">Trips</th>
-              <th className="px-3 py-2">Volume (m3)</th>
-              <th className="px-3 py-2">Empty km</th>
+              <th className="px-3 py-2">Ngày</th>
+              <th className="px-3 py-2">Trạm</th>
+              <th className="px-3 py-2">Đúng giờ %</th>
+              <th className="px-3 py-2">Vòng quay TB</th>
+              <th className="px-3 py-2">Hiệu suất xe %</th>
+              <th className="px-3 py-2">Hiệu suất bơm %</th>
+              <th className="px-3 py-2">Số chuyến</th>
+              <th className="px-3 py-2">Sản lượng (m3)</th>
+              <th className="px-3 py-2">Km rỗng</th>
             </tr>
           </thead>
           <tbody>
             {filteredRows.map((row) => (
               <tr key={String(row.id)} className="border-t border-slate-100">
                 <td className="px-3 py-2">{String(row.snapshot_date ?? "-")}</td>
-                <td className="px-3 py-2">{String(row.plant_id ?? "-")}</td>
+                <td className="px-3 py-2">{toShortId(row.plant_id)}</td>
                 <td className="px-3 py-2">{String(row.on_time_pct ?? "-")}</td>
                 <td className="px-3 py-2">{String(row.avg_cycle_minutes ?? "-")}</td>
                 <td className="px-3 py-2">{String(row.vehicle_utilization_pct ?? "-")}</td>
@@ -168,7 +174,7 @@ export default function DispatchKpiPage() {
             {filteredRows.length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-3 py-6 text-center text-slate-500">
-                  Chưa có KPI snapshot.
+                  Chưa có ảnh chụp KPI.
                 </td>
               </tr>
             ) : null}

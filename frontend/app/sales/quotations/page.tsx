@@ -83,7 +83,7 @@ export default function SalesQuotationsPage() {
   async function runPreview() {
     if (!accessToken) return;
     if (!organizationId) {
-      setError("organization_id là bắt buộc để preview giá.");
+      setError("organization_id là bắt buộc để xem trước giá.");
       return;
     }
 
@@ -94,7 +94,7 @@ export default function SalesQuotationsPage() {
       const result = await apiPricingPreview(payload, accessToken);
       setPreview(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không preview được giá.");
+      setError(e instanceof Error ? e.message : "Không xem trước được giá.");
     } finally {
       setBusyPreview(false);
     }
@@ -177,7 +177,7 @@ export default function SalesQuotationsPage() {
         accessToken
       );
 
-      setMessage(`Đã tạo và chốt báo giá ${quotationNo} (${quotationId}).`);
+      setMessage(`Đã tạo và chốt báo giá ${quotationNo}.`);
       setQuotationNo(buildQuotationNo());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Tạo báo giá thất bại.");
@@ -194,14 +194,14 @@ export default function SalesQuotationsPage() {
         createdQuotationId,
         {
           action,
-          note: action === "approved" ? "Approved by sales manager" : "Rejected by sales manager",
+          note: action === "approved" ? "Duyệt bởi quản lý kinh doanh" : "Từ chối bởi quản lý kinh doanh",
           discount_override_amount: Number(discountAmount || "0")
         },
         accessToken
       );
-      setMessage(action === "approved" ? "Đã duyệt manual override/discount." : "Đã từ chối báo giá.");
+      setMessage(action === "approved" ? "Đã duyệt override/chiết khấu thủ công." : "Đã từ chối báo giá.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không cập nhật được trạng thái approval.");
+      setError(e instanceof Error ? e.message : "Không cập nhật được trạng thái duyệt.");
     }
   }
 
@@ -211,79 +211,79 @@ export default function SalesQuotationsPage() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Quotation Builder (Realtime Pricing Preview)</h2>
+      <h2 className="text-xl font-semibold">Lập báo giá (xem trước giá thời gian thực)</h2>
 
       <form className="space-y-3 rounded border border-slate-200 bg-white p-4" onSubmit={handleCreateAndConfirm}>
         <div className="grid gap-3 md:grid-cols-3">
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="organization_id *"
+            placeholder="Mã tổ chức (organization_id) *"
             value={organizationId}
             onChange={(event) => setOrganizationId(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="customer_id *"
+            placeholder="Mã khách hàng (customer_id) *"
             value={customerId}
             onChange={(event) => setCustomerId(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="site_id"
+            placeholder="Mã công trình (site_id)"
             value={siteId}
             onChange={(event) => setSiteId(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="price_book_id (optional)"
+            placeholder="Mã bảng giá (price_book_id, tuỳ chọn)"
             value={priceBookId}
             onChange={(event) => setPriceBookId(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="concrete_product_id *"
+            placeholder="Mã sản phẩm bê tông (concrete_product_id) *"
             value={concreteProductId}
             onChange={(event) => setConcreteProductId(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="quotation_no"
+            placeholder="Mã báo giá (quotation_no)"
             value={quotationNo}
             onChange={(event) => setQuotationNo(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="quoted_volume_m3"
+            placeholder="Khối lượng báo giá (quoted_volume_m3)"
             value={quotedVolumeM3}
             onChange={(event) => setQuotedVolumeM3(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="distance_km"
+            placeholder="Khoảng cách (distance_km)"
             value={distanceKm}
             onChange={(event) => setDistanceKm(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="difficulty_level"
+            placeholder="Mức độ khó (difficulty_level)"
             value={difficultyLevel}
             onChange={(event) => setDifficultyLevel(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="region_code"
+            placeholder="Mã vùng (region_code)"
             value={regionCode}
             onChange={(event) => setRegionCode(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="surcharge_amount"
+            placeholder="Phụ thu (surcharge_amount)"
             value={surchargeAmount}
             onChange={(event) => setSurchargeAmount(event.target.value)}
           />
           <input
             className="rounded border border-slate-300 px-3 py-2"
-            placeholder="discount_amount"
+            placeholder="Chiết khấu (discount_amount)"
             value={discountAmount}
             onChange={(event) => setDiscountAmount(event.target.value)}
           />
@@ -292,26 +292,26 @@ export default function SalesQuotationsPage() {
         <div className="flex items-center gap-3">
           <label className="inline-flex items-center gap-2 text-sm">
             <input type="checkbox" checked={requiresPump} onChange={(event) => setRequiresPump(event.target.checked)} />
-            requires_pump
+            Cần bơm
           </label>
           <label className="inline-flex items-center gap-2 text-sm">
             <input type="checkbox" checked={autoPreview} onChange={(event) => setAutoPreview(event.target.checked)} />
-            auto preview realtime
+            Tự động xem trước
           </label>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="secondary" onClick={runPreview} disabled={busyPreview}>
-            {busyPreview ? "Đang preview..." : "Preview giá"}
+            {busyPreview ? "Đang xem trước..." : "Xem trước giá"}
           </Button>
           <Button type="submit" disabled={busySubmit}>
             {busySubmit ? "Đang tạo..." : "Tạo + chốt báo giá"}
           </Button>
           <Button type="button" variant="secondary" onClick={() => handleApproval("approved")} disabled={!createdQuotationId}>
-            Approve discount/manual override
+            Duyệt override/chiết khấu
           </Button>
           <Button type="button" variant="secondary" onClick={() => handleApproval("rejected")} disabled={!createdQuotationId}>
-            Reject quotation
+            Từ chối báo giá
           </Button>
           {createdQuotationId ? (
             <a
@@ -320,7 +320,7 @@ export default function SalesQuotationsPage() {
               target="_blank"
               rel="noreferrer"
             >
-              PDF preview báo giá
+              Xem PDF báo giá
             </a>
           ) : null}
         </div>
@@ -328,12 +328,12 @@ export default function SalesQuotationsPage() {
 
       {preview ? (
         <div className="space-y-3 rounded border border-slate-200 bg-white p-4">
-          <h3 className="text-lg font-semibold">Pricing preview</h3>
-          <div className="grid gap-2 md:grid-cols-4 text-sm">
-            <div className="rounded bg-slate-50 p-2">Price Book: {preview.price_book.code}</div>
-            <div className="rounded bg-slate-50 p-2">Final Unit Price: {preview.final_unit_price}</div>
-            <div className="rounded bg-slate-50 p-2">Quoted Volume: {preview.quoted_volume_m3}</div>
-            <div className="rounded bg-slate-50 p-2">Total Amount: {preview.total_amount}</div>
+          <h3 className="text-lg font-semibold">Kết quả xem trước giá</h3>
+          <div className="grid gap-2 text-sm md:grid-cols-4">
+            <div className="rounded bg-slate-50 p-2">Bảng giá: {preview.price_book.code}</div>
+            <div className="rounded bg-slate-50 p-2">Đơn giá cuối: {preview.final_unit_price}</div>
+            <div className="rounded bg-slate-50 p-2">Khối lượng báo giá: {preview.quoted_volume_m3}</div>
+            <div className="rounded bg-slate-50 p-2">Tổng tiền: {preview.total_amount}</div>
           </div>
           <pre className="overflow-auto rounded bg-slate-100 p-3 text-xs">{JSON.stringify(preview.components, null, 2)}</pre>
         </div>

@@ -841,6 +841,108 @@ class DailyKpiSnapshot(TimestampMixin, Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class Warehouse(TimestampMixin, Base):
+    __tablename__ = "warehouses"
+    __table_args__ = (UniqueConstraint("organization_id", "code", name="uq_warehouses_org_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    business_unit_id: Mapped[str | None] = mapped_column(ForeignKey("business_units.id"))
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str | None] = mapped_column(String(500))
+    manager_name: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class CostCenter(TimestampMixin, Base):
+    __tablename__ = "cost_centers"
+    __table_args__ = (UniqueConstraint("organization_id", "code", name="uq_cost_centers_org_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("cost_centers.id"))
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    center_type: Mapped[str | None] = mapped_column(String(64))
+    level_no: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class CostObject(TimestampMixin, Base):
+    __tablename__ = "cost_objects"
+    __table_args__ = (UniqueConstraint("organization_id", "code", name="uq_cost_objects_org_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    cost_center_id: Mapped[str | None] = mapped_column(ForeignKey("cost_centers.id"))
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_type: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class CostPeriod(TimestampMixin, Base):
+    __tablename__ = "cost_periods"
+    __table_args__ = (UniqueConstraint("organization_id", "period_code", name="uq_cost_periods_org_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    period_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    start_date: Mapped[datetime | None] = mapped_column(Date)
+    end_date: Mapped[datetime | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    preclose_check_json: Mapped[dict | list | None] = mapped_column(JSON)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opened_by: Mapped[str | None] = mapped_column(String(36))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[str | None] = mapped_column(String(36))
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reopened_by: Mapped[str | None] = mapped_column(String(36))
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class InventoryLedgerEntry(TimestampMixin, Base):
+    __tablename__ = "inventory_ledger_entries"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    business_unit_id: Mapped[str | None] = mapped_column(ForeignKey("business_units.id"))
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    warehouse_id: Mapped[str] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
+    material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"), nullable=False)
+    movement_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity_in: Mapped[float | None] = mapped_column(Numeric(18, 3), default=0)
+    quantity_out: Mapped[float | None] = mapped_column(Numeric(18, 3), default=0)
+    unit_cost: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    total_cost: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    reference_no: Mapped[str | None] = mapped_column(String(64))
+    source_document_type: Mapped[str | None] = mapped_column(String(64))
+    source_document_id: Mapped[str | None] = mapped_column(String(36))
+    note: Mapped[str | None] = mapped_column(Text)
+    transaction_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    period_id: Mapped[str | None] = mapped_column(ForeignKey("cost_periods.id"))
+    created_by: Mapped[str | None] = mapped_column(String(36))
+    balance_after_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+
+
+class InventoryStockTake(TimestampMixin, Base):
+    __tablename__ = "inventory_stock_takes"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    warehouse_id: Mapped[str] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
+    material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"), nullable=False)
+    stock_take_date: Mapped[datetime | None] = mapped_column(Date)
+    counted_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
+    system_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    variance_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    unit_cost: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    note: Mapped[str | None] = mapped_column(Text)
+    period_id: Mapped[str | None] = mapped_column(ForeignKey("cost_periods.id"))
+    status: Mapped[str] = mapped_column(String(32), default="posted")
+    posted_by: Mapped[str | None] = mapped_column(String(36))
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class SystemSetting(TimestampMixin, Base):
     __tablename__ = "system_settings"
 

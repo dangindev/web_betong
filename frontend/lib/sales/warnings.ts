@@ -14,7 +14,7 @@ export function getPourRequestWarnings(item: PourRequestLike): string[] {
     warnings.push("Chưa gán trạm cấp");
   }
   if (!item.requested_start_at || !item.requested_end_at) {
-    warnings.push("Thiếu time window chuẩn");
+    warnings.push("Thiếu khung giờ chuẩn");
   }
   if (!item.site_contact_name || !item.site_contact_phone) {
     warnings.push("Thiếu liên hệ công trình");
