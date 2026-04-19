@@ -34,7 +34,7 @@ ADMIN_RESOURCES = {
 }
 
 
-APPEND_ONLY_RESOURCES = {"inventory_ledger_entries", "inventory_stock_takes"}
+APPEND_ONLY_RESOURCES = {"inventory_ledger_entries", "inventory_stock_takes", "allocation_results", "unit_cost_snapshots", "margin_snapshots"}
 
 
 

@@ -1335,3 +1335,138 @@ def test_phase4_inventory_and_cost_period_workflow() -> None:
         assert export_response.headers["content-type"].startswith(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+
+def test_phase5_production_costing_and_margin_workflow() -> None:
+    with TestClient(app) as client:
+        tokens = _login(client, "admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        plants_response = client.get("/api/v1/resources/plants?skip=0&limit=1", headers=headers)
+        assert plants_response.status_code == 200
+        plants = plants_response.json()["items"]
+        assert plants
+
+        plant_id = str(plants[0]["id"])
+        organization_id = str(plants[0]["organization_id"])
+
+        period_code = f"P5-{uuid4().hex[:6].upper()}"
+        create_period_response = client.post(
+            "/api/v1/costing/periods",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_code": period_code,
+                "start_date": date.today().isoformat(),
+                "end_date": date.today().isoformat(),
+                "note": "Kỳ kiểm thử phase 5",
+            },
+        )
+        assert create_period_response.status_code == 200
+        period_id = str(create_period_response.json()["period"]["id"])
+
+        production_response = client.post(
+            "/api/v1/costing/production-logs",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "plant_id": plant_id,
+                "shift_date": date.today().isoformat(),
+                "log_type": "batching",
+                "output_qty": 45,
+                "runtime_minutes": 360,
+                "electricity_kwh": 120,
+                "note": "phase5 integration test",
+            },
+        )
+        assert production_response.status_code == 200
+
+        pool_response = client.post(
+            "/api/v1/costing/cost-pools",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "pool_code": f"POOL-{uuid4().hex[:4].upper()}",
+                "pool_name": "Overhead test",
+                "cost_type": "overhead",
+                "amount": 1500000,
+            },
+        )
+        assert pool_response.status_code == 200
+        pool_id = str(pool_response.json()["cost_pool"]["id"])
+
+        rule_response = client.post(
+            "/api/v1/costing/allocation-rules",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "pool_id": pool_id,
+                "basis_type": "manual_ratio",
+                "ratio_value": 1,
+                "priority": 100,
+            },
+        )
+        assert rule_response.status_code == 200
+
+        allocation_response = client.post(
+            "/api/v1/costing/allocation-runs",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "note": "run allocation phase 5",
+            },
+        )
+        assert allocation_response.status_code == 200
+        allocation_run_id = str(allocation_response.json()["allocation_run"]["id"])
+        assert allocation_response.json()["results"]
+
+        unit_cost_response = client.post(
+            "/api/v1/costing/unit-cost-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "source_run_id": allocation_run_id,
+            },
+        )
+        assert unit_cost_response.status_code == 200
+        assert float(unit_cost_response.json()["unit_cost_snapshot"]["unit_cost"]) >= 0
+
+        margin_response = client.post(
+            "/api/v1/costing/margin-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "revenue_amount": 2000000,
+                "cost_amount": 1500000,
+                "note": "margin snapshot phase 5",
+            },
+        )
+        assert margin_response.status_code == 200
+        assert float(margin_response.json()["margin_snapshot"]["margin_amount"]) == 500000
+
+        production_list_response = client.get(
+            f"/api/v1/costing/production-logs?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert production_list_response.status_code == 200
+        assert production_list_response.json()["items"]
+
+        unit_cost_list_response = client.get(
+            f"/api/v1/costing/unit-cost-snapshots?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert unit_cost_list_response.status_code == 200
+        assert unit_cost_list_response.json()["items"]
+
+        margin_list_response = client.get(
+            f"/api/v1/costing/margin-snapshots?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert margin_list_response.status_code == 200
+        assert margin_list_response.json()["items"]

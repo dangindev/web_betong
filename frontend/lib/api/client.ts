@@ -832,3 +832,232 @@ export async function apiCostPeriodPrecloseChecklist(
 
   return parseResponse<Record<string, unknown>>(response);
 }
+
+export type Phase5ProductionLogPayload = {
+  organization_id: string;
+  period_id?: string;
+  plant_id?: string;
+  shift_date?: string;
+  log_type?: "crushing" | "batching" | "production";
+  production_line?: string;
+  material_id?: string;
+  concrete_product_id?: string;
+  input_qty?: number;
+  output_qty?: number;
+  runtime_minutes?: number;
+  downtime_minutes?: number;
+  electricity_kwh?: number;
+  labor_hours?: number;
+  maintenance_cost?: number;
+  note?: string;
+};
+
+export type Phase5CostPoolPayload = {
+  organization_id: string;
+  period_id: string;
+  pool_code: string;
+  pool_name: string;
+  cost_type?: string;
+  amount: number;
+  source_reference?: string;
+  note?: string;
+};
+
+export type Phase5AllocationRulePayload = {
+  organization_id: string;
+  period_id: string;
+  pool_id: string;
+  cost_center_id?: string;
+  cost_object_id?: string;
+  basis_type?: "manual_ratio" | "volume_m3" | "runtime_minutes";
+  ratio_value?: number;
+  priority?: number;
+  note?: string;
+};
+
+export type Phase5RunAllocationPayload = {
+  organization_id: string;
+  period_id: string;
+  note?: string;
+};
+
+export type Phase5UnitCostSnapshotPayload = {
+  organization_id: string;
+  period_id: string;
+  concrete_product_id?: string;
+  source_run_id?: string;
+  output_volume_m3?: number;
+  total_cost?: number;
+  note?: string;
+};
+
+export type Phase5MarginSnapshotPayload = {
+  organization_id: string;
+  period_id: string;
+  sales_order_id?: string;
+  concrete_product_id?: string;
+  delivered_volume_m3?: number;
+  revenue_amount?: number;
+  cost_amount?: number;
+  note?: string;
+};
+
+export async function apiCreateProductionLog(
+  payload: Phase5ProductionLogPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/production-logs`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiListProductionLogs(
+  organizationId: string,
+  accessToken: string,
+  options?: { period_id?: string; plant_id?: string; skip?: number; limit?: number }
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/production-logs", {
+      organization_id: organizationId,
+      period_id: options?.period_id,
+      plant_id: options?.plant_id,
+      skip: options?.skip ?? 0,
+      limit: options?.limit ?? 100
+    }),
+    accessToken
+  );
+
+  return parseResponse<{ items: Array<Record<string, unknown>> }>(response);
+}
+
+export async function apiCreateCostPool(
+  payload: Phase5CostPoolPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/cost-pools`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiCreateAllocationRule(
+  payload: Phase5AllocationRulePayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/allocation-rules`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiRunAllocation(
+  payload: Phase5RunAllocationPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/allocation-runs`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiGetAllocationRun(
+  allocationRunId: string,
+  organizationId: string,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl(`/api/v1/costing/allocation-runs/${allocationRunId}`, {
+      organization_id: organizationId
+    }),
+    accessToken
+  );
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiCreateUnitCostSnapshot(
+  payload: Phase5UnitCostSnapshotPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/unit-cost-snapshots`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiListUnitCostSnapshots(
+  organizationId: string,
+  accessToken: string,
+  options?: { period_id?: string; skip?: number; limit?: number }
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/unit-cost-snapshots", {
+      organization_id: organizationId,
+      period_id: options?.period_id,
+      skip: options?.skip ?? 0,
+      limit: options?.limit ?? 100
+    }),
+    accessToken
+  );
+
+  return parseResponse<{ items: Array<Record<string, unknown>> }>(response);
+}
+
+export async function apiCreateMarginSnapshot(
+  payload: Phase5MarginSnapshotPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/margin-snapshots`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiListMarginSnapshots(
+  organizationId: string,
+  accessToken: string,
+  options?: { period_id?: string; skip?: number; limit?: number }
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/margin-snapshots", {
+      organization_id: organizationId,
+      period_id: options?.period_id,
+      skip: options?.skip ?? 0,
+      limit: options?.limit ?? 100
+    }),
+    accessToken
+  );
+
+  return parseResponse<{ items: Array<Record<string, unknown>> }>(response);
+}

@@ -40,6 +40,7 @@ const navItems: NavItem[] = [
   { href: "/", label: "Tổng quan", icon: LayoutDashboard },
   { href: "/danh-muc/khach-hang", label: "Danh mục nền", icon: Database },
   { href: "/kho-gia-thanh", label: "Kho & giá thành", icon: Package },
+  { href: "/gia-thanh-nang-cao", label: "Sản xuất & biên lợi nhuận", icon: Factory },
   { href: "/kinh-doanh", label: "Điều hành kinh doanh", icon: BookOpen },
   { href: "/kinh-doanh/don-hang", label: "Danh sách đơn hàng", icon: ListFilter },
   { href: "/dieu-phoi", label: "Điều phối", icon: Truck },
