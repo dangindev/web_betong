@@ -14,12 +14,23 @@ import {
   apiListProductionLogs,
   apiListResource,
   apiListUnitCostSnapshots,
+  apiBatchTicketVarianceSummary,
+  apiRecordBatchTicketActuals,
   apiRunAllocation,
   apiUnitCostVariancePreview
 } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/store/auth-store";
 
 type GenericRow = Record<string, unknown>;
+
+const COST_BREAKDOWN_LABELS: Array<{ key: string; label: string }> = [
+  { key: "direct_material", label: "Direct material" },
+  { key: "direct_labor", label: "Direct labor" },
+  { key: "utilities", label: "Utilities" },
+  { key: "maintenance", label: "Maintenance" },
+  { key: "depreciation", label: "Depreciation" },
+  { key: "overhead_allocation", label: "Overhead allocation" }
+];
 
 function toText(value: unknown): string {
   return String(value ?? "").trim();
@@ -71,7 +82,14 @@ export default function CostingPhase5Page() {
   const [selectedPeriodId, setSelectedPeriodId] = useState("");
   const [precloseChecklist, setPrecloseChecklist] = useState<GenericRow | null>(null);
   const [variancePreview, setVariancePreview] = useState<GenericRow | null>(null);
+  const [batchTicketVariance, setBatchTicketVariance] = useState<GenericRow | null>(null);
   const [workflowNote, setWorkflowNote] = useState("");
+
+  const [batchTicketId, setBatchTicketId] = useState("");
+  const [batchMaterialId, setBatchMaterialId] = useState("");
+  const [batchTargetQty, setBatchTargetQty] = useState("0");
+  const [batchActualQty, setBatchActualQty] = useState("0");
+  const [batchNote, setBatchNote] = useState("");
 
   const [productionLogType, setProductionLogType] = useState<"crushing" | "batching" | "production">("batching");
   const [productionPlantId, setProductionPlantId] = useState("");
@@ -180,17 +198,20 @@ export default function CostingPhase5Page() {
     if (!accessToken || !organizationId || !selectedPeriodId) {
       setPrecloseChecklist(null);
       setVariancePreview(null);
+      setBatchTicketVariance(null);
       return;
     }
 
     try {
-      const [checklistRes, varianceRes] = await Promise.all([
+      const [checklistRes, varianceRes, batchVarianceRes] = await Promise.all([
         apiCostPeriodPrecloseChecklist(selectedPeriodId, organizationId, accessToken),
-        apiUnitCostVariancePreview(organizationId, selectedPeriodId, accessToken)
+        apiUnitCostVariancePreview(organizationId, selectedPeriodId, accessToken),
+        apiBatchTicketVarianceSummary(organizationId, selectedPeriodId, accessToken)
       ]);
 
       setPrecloseChecklist((checklistRes.checklist as GenericRow) ?? null);
       setVariancePreview(varianceRes);
+      setBatchTicketVariance(batchVarianceRes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không tải được dữ liệu wizard chốt kỳ.");
     }
@@ -249,6 +270,44 @@ export default function CostingPhase5Page() {
       await loadCloseWorkflowData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Thao tác kỳ giá thành thất bại.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRecordBatchTicketActuals(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!accessToken || !organizationId || !selectedPeriodId || !batchTicketId || !batchMaterialId) return;
+
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await apiRecordBatchTicketActuals(
+        {
+          organization_id: organizationId,
+          period_id: selectedPeriodId,
+          batch_ticket_id: batchTicketId,
+          components: [
+            {
+              material_id: batchMaterialId,
+              target_qty: toNumber(batchTargetQty),
+              actual_qty: toNumber(batchActualQty)
+            }
+          ],
+          note: batchNote || undefined
+        },
+        accessToken
+      );
+
+      const summary = (response.summary as GenericRow | undefined) ?? null;
+      setMessage(
+        `Đã ghi nhận actual cho batch ticket ${batchTicketId}. Chênh lệch tổng: ${formatNumber(summary?.total_variance_qty, 3)} (${formatNumber(summary?.variance_pct, 3)}%).`
+      );
+      await loadCloseWorkflowData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ghi nhận batch ticket actual thất bại.");
     } finally {
       setBusy(false);
     }
@@ -442,6 +501,11 @@ export default function CostingPhase5Page() {
   const previousSnapshot = (variancePreview?.previous_snapshot as GenericRow | undefined) ?? null;
   const previousPeriod = (variancePreview?.previous_period as GenericRow | undefined) ?? null;
   const variance = (variancePreview?.variance as GenericRow | undefined) ?? null;
+  const currentSnapshotJson = (currentSnapshot?.snapshot_json as GenericRow | undefined) ?? null;
+  const currentCostBreakdown = (currentSnapshotJson?.cost_breakdown as GenericRow | undefined) ?? null;
+  const currentCostBreakdownPct = (currentSnapshotJson?.cost_breakdown_pct as GenericRow | undefined) ?? null;
+  const batchVarianceSummary = (batchTicketVariance?.summary as GenericRow | undefined) ?? null;
+  const batchVarianceItems = (batchTicketVariance?.items as GenericRow[] | undefined) ?? [];
 
   return (
     <div className="space-y-6">
@@ -466,7 +530,7 @@ export default function CostingPhase5Page() {
         </select>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-4 xl:grid-cols-3">
         <article className="ta-card space-y-3 p-4">
           <h2 className="text-lg font-semibold text-gray-900">Wizard chốt kỳ giá thành</h2>
           <p className="text-sm text-gray-600">
@@ -521,6 +585,19 @@ export default function CostingPhase5Page() {
             <p>Đơn giá: {formatNumber(currentSnapshot?.unit_cost)} / m3</p>
             <p>Tổng chi phí: {formatNumber(currentSnapshot?.total_cost)}</p>
           </div>
+          {currentCostBreakdown ? (
+            <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+              <p className="font-medium">CostingEngine breakdown</p>
+              <div className="mt-2 space-y-1">
+                {COST_BREAKDOWN_LABELS.map((item) => (
+                  <p key={item.key}>
+                    {item.label}: <span className="font-medium">{formatNumber(currentCostBreakdown[item.key])}</span>{" "}
+                    ({formatNumber(currentCostBreakdownPct?.[item.key], 3)}%)
+                  </p>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
             <p className="font-medium">Kỳ trước ({toText(previousPeriod?.period_code) || "chưa có"})</p>
             <p>Snapshot: {toText(previousSnapshot?.snapshot_code) || "-"}</p>
@@ -535,6 +612,71 @@ export default function CostingPhase5Page() {
               Tỷ lệ chênh lệch: <span className="font-medium">{formatNumber(variance?.pct, 3)}%</span>
             </p>
             <p>Xu hướng: {toText(variance?.direction) || "n/a"}</p>
+          </div>
+        </article>
+
+        <article className="ta-card space-y-3 p-4">
+          <h2 className="text-lg font-semibold text-gray-900">Batch ticket actual vs mix design</h2>
+          <form className="space-y-2" onSubmit={handleRecordBatchTicketActuals}>
+            <input
+              className="ta-input"
+              placeholder="Batch ticket id"
+              value={batchTicketId}
+              onChange={(event) => setBatchTicketId(event.target.value)}
+            />
+            <input
+              className="ta-input"
+              placeholder="Material id"
+              value={batchMaterialId}
+              onChange={(event) => setBatchMaterialId(event.target.value)}
+            />
+            <input
+              className="ta-input"
+              placeholder="Target qty"
+              value={batchTargetQty}
+              onChange={(event) => setBatchTargetQty(event.target.value)}
+            />
+            <input
+              className="ta-input"
+              placeholder="Actual qty"
+              value={batchActualQty}
+              onChange={(event) => setBatchActualQty(event.target.value)}
+            />
+            <textarea
+              className="ta-input min-h-16"
+              placeholder="Ghi chú (tuỳ chọn)"
+              value={batchNote}
+              onChange={(event) => setBatchNote(event.target.value)}
+            />
+            <button
+              className="ta-button-primary"
+              type="submit"
+              disabled={busy || !selectedPeriodId || !batchTicketId || !batchMaterialId}
+            >
+              Ghi nhận actual
+            </button>
+          </form>
+
+          <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+            <p className="font-medium">Tổng hợp variance kỳ đang chọn</p>
+            <p>Batch ticket: {formatNumber(batchVarianceSummary?.ticket_count, 0)}</p>
+            <p>Components: {formatNumber(batchVarianceSummary?.component_count, 0)}</p>
+            <p>Target tổng: {formatNumber(batchVarianceSummary?.total_target_qty, 3)}</p>
+            <p>Actual tổng: {formatNumber(batchVarianceSummary?.total_actual_qty, 3)}</p>
+            <p>Variance tổng: {formatNumber(batchVarianceSummary?.total_variance_qty, 3)}</p>
+            <p>Variance %: {formatNumber(batchVarianceSummary?.variance_pct, 3)}%</p>
+          </div>
+
+          <div className="space-y-2 rounded border border-gray-200 bg-white p-3 text-sm text-gray-700">
+            <p className="font-medium">Top vật tư lệch nhiều nhất</p>
+            {batchVarianceItems.slice(0, 5).map((item) => (
+              <div key={`${toText(item.material_id)}-${toText(item.variance_qty)}`} className="rounded border border-gray-100 bg-gray-50 p-2">
+                <p className="font-medium">{toText(item.material_id)}</p>
+                <p>Target: {formatNumber(item.target_qty, 3)} · Actual: {formatNumber(item.actual_qty, 3)}</p>
+                <p>Variance: {formatNumber(item.variance_qty, 3)} ({formatNumber(item.variance_pct, 3)}%)</p>
+              </div>
+            ))}
+            {batchVarianceItems.length === 0 ? <p className="text-gray-500">Chưa có dữ liệu variance batch ticket.</p> : null}
           </div>
         </article>
       </section>

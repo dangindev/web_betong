@@ -152,25 +152,25 @@ export default function DispatchInboxPage() {
 
       <div className="grid gap-2 md:grid-cols-4">
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã trạm gán (assigned_plant_id)"
           value={assignedPlantId}
           onChange={(event) => setAssignedPlantId(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã bơm gán (assigned_pump_id)"
           value={assignedPumpId}
           onChange={(event) => setAssignedPumpId(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Nhịp xe mục tiêu (phút)"
           value={targetRhythm}
           onChange={(event) => setTargetRhythm(event.target.value)}
@@ -178,7 +178,7 @@ export default function DispatchInboxPage() {
       </div>
 
       <div className="flex items-center gap-2">
-        <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800" onClick={() => void load()}>
+        <button className="ta-button" onClick={() => void load()}>
           {loading ? "Đang tải..." : "Làm mới"}
         </button>
         {message ? <span className="text-sm text-emerald-700">{message}</span> : null}
@@ -228,21 +228,21 @@ export default function DispatchInboxPage() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         disabled={rowBusy}
-                        className="rounded bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-500 disabled:opacity-60"
+                        className="ta-button-secondary h-8 px-3 text-xs"
                         onClick={() => void handleDecision(pourRequestId, "approve")}
                       >
                         Duyệt
                       </button>
                       <button
                         disabled={rowBusy}
-                        className="rounded bg-amber-600 px-2 py-1 text-xs text-white hover:bg-amber-500 disabled:opacity-60"
+                        className="ta-button h-8 px-3 text-xs"
                         onClick={() => void handleDecision(pourRequestId, "request-more-info")}
                       >
                         Yêu cầu bổ sung
                       </button>
                       <button
                         disabled={rowBusy}
-                        className="rounded bg-rose-600 px-2 py-1 text-xs text-white hover:bg-rose-500 disabled:opacity-60"
+                        className="ta-button-danger h-8 px-3 text-xs"
                         onClick={() => void handleDecision(pourRequestId, "reject")}
                       >
                         Từ chối

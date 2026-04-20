@@ -92,13 +92,13 @@ export default function DispatchReconciliationPage() {
 
       <div className="grid gap-2 md:grid-cols-3">
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
         <select
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           value={pourRequestId}
           onChange={(event) => setPourRequestId(event.target.value)}
         >
@@ -109,39 +109,39 @@ export default function DispatchReconciliationPage() {
             </option>
           ))}
         </select>
-        <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800" onClick={() => void load()}>
+        <button className="ta-button" onClick={() => void load()}>
           Làm mới
         </button>
       </div>
 
       <div className="grid gap-2 md:grid-cols-4">
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Khối lượng thực tế (actual_volume_m3)"
           value={actualVolume}
           onChange={(event) => setActualVolume(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Số chuyến thực tế (actual_trip_count)"
           value={actualTrips}
           onChange={(event) => setActualTrips(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã lý do (reason_code)"
           value={reasonCode}
           onChange={(event) => setReasonCode(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Ghi chú"
           value={note}
           onChange={(event) => setNote(event.target.value)}
         />
       </div>
 
-      <button className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500" onClick={() => void handleReconcile()}>
+      <button className="ta-button-primary" onClick={() => void handleReconcile()}>
         Chốt đối soát
       </button>
 

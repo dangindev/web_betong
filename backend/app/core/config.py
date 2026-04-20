@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     cors_allow_origins: str = "*"
     upload_dir: str = "/root/web_betong/backend/uploads"
 
+    security_headers_enabled: bool = True
+    rate_limit_enabled: bool = True
+    rate_limit_requests_per_minute: int = 1200
+    rate_limit_login_requests_per_minute: int = 120
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

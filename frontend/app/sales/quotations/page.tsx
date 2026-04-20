@@ -216,73 +216,73 @@ export default function SalesQuotationsPage() {
       <form className="space-y-3 rounded border border-slate-200 bg-white p-4" onSubmit={handleCreateAndConfirm}>
         <div className="grid gap-3 md:grid-cols-3">
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Mã tổ chức (organization_id) *"
             value={organizationId}
             onChange={(event) => setOrganizationId(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Mã khách hàng (customer_id) *"
             value={customerId}
             onChange={(event) => setCustomerId(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Mã công trình (site_id)"
             value={siteId}
             onChange={(event) => setSiteId(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Mã bảng giá (price_book_id, tuỳ chọn)"
             value={priceBookId}
             onChange={(event) => setPriceBookId(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Mã sản phẩm bê tông (concrete_product_id) *"
             value={concreteProductId}
             onChange={(event) => setConcreteProductId(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Mã báo giá (quotation_no)"
             value={quotationNo}
             onChange={(event) => setQuotationNo(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Khối lượng báo giá (quoted_volume_m3)"
             value={quotedVolumeM3}
             onChange={(event) => setQuotedVolumeM3(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Khoảng cách (distance_km)"
             value={distanceKm}
             onChange={(event) => setDistanceKm(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Mức độ khó (difficulty_level)"
             value={difficultyLevel}
             onChange={(event) => setDifficultyLevel(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Mã vùng (region_code)"
             value={regionCode}
             onChange={(event) => setRegionCode(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Phụ thu (surcharge_amount)"
             value={surchargeAmount}
             onChange={(event) => setSurchargeAmount(event.target.value)}
           />
           <input
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             placeholder="Chiết khấu (discount_amount)"
             value={discountAmount}
             onChange={(event) => setDiscountAmount(event.target.value)}

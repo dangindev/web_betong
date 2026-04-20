@@ -188,7 +188,7 @@ export default function ProjectSitesPage() {
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">Wizard công trình</h2>
 
-      <div className="grid gap-2 rounded border border-slate-200 bg-white p-4 md:grid-cols-4">
+      <div className="ta-card grid gap-2 p-4 md:grid-cols-4">
         {([1, 2, 3, 4] as WizardStep[]).map((numericStep) => {
           const active = step === numericStep;
 
@@ -212,41 +212,41 @@ export default function ProjectSitesPage() {
         })}
       </div>
 
-      <div className="space-y-4 rounded border border-slate-200 bg-white p-4">
+      <div className="ta-card space-y-4 p-4">
         {step === 1 ? (
           <div className="grid gap-3 md:grid-cols-2">
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="ta-input"
               placeholder="Mã tổ chức (organization_id) *"
               value={form.organization_id}
               onChange={(event) => updateForm("organization_id", event.target.value)}
             />
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="ta-input"
               placeholder="Mã khách hàng (customer_id) *"
               value={form.customer_id}
               onChange={(event) => updateForm("customer_id", event.target.value)}
             />
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="ta-input"
               placeholder="Mã công trình (site_id, điền để cập nhật thay vì tạo mới)"
               value={form.existing_site_id}
               onChange={(event) => updateForm("existing_site_id", event.target.value)}
             />
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="ta-input"
               placeholder="Mã nội bộ công trình (code) *"
               value={form.code}
               onChange={(event) => updateForm("code", event.target.value)}
             />
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="ta-input"
               placeholder="Tên công trình (site_name) *"
               value={form.site_name}
               onChange={(event) => updateForm("site_name", event.target.value)}
             />
             <input
-              className="rounded border border-slate-300 px-3 py-2 md:col-span-2"
+              className="ta-input md:col-span-2"
               placeholder="Loại công trình (site_type)"
               value={form.site_type}
               onChange={(event) => updateForm("site_type", event.target.value)}
@@ -257,26 +257,26 @@ export default function ProjectSitesPage() {
         {step === 2 ? (
           <div className="space-y-3">
             <textarea
-              className="w-full rounded border border-slate-300 px-3 py-2"
+              className="ta-textarea"
               placeholder="Địa chỉ chi tiết (address_line) *"
               value={form.address_line}
               onChange={(event) => updateForm("address_line", event.target.value)}
             />
             <div className="grid gap-3 md:grid-cols-3">
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="ta-input"
                 placeholder="Phường/Xã (ward)"
                 value={form.ward}
                 onChange={(event) => updateForm("ward", event.target.value)}
               />
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="ta-input"
                 placeholder="Quận/Huyện (district)"
                 value={form.district}
                 onChange={(event) => updateForm("district", event.target.value)}
               />
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="ta-input"
                 placeholder="Tỉnh/Thành phố (city)"
                 value={form.city}
                 onChange={(event) => updateForm("city", event.target.value)}
@@ -285,13 +285,13 @@ export default function ProjectSitesPage() {
 
             <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="ta-input"
                 placeholder="Vĩ độ (latitude)"
                 value={form.latitude}
                 onChange={(event) => updateForm("latitude", event.target.value)}
               />
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="ta-input"
                 placeholder="Kinh độ (longitude)"
                 value={form.longitude}
                 onChange={(event) => updateForm("longitude", event.target.value)}
@@ -320,13 +320,13 @@ export default function ProjectSitesPage() {
           <div className="space-y-3">
             <div className="grid gap-3 md:grid-cols-2">
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="ta-input"
                 placeholder="Mã hồ sơ tiếp cận (access_profile_id)"
                 value={form.access_profile_id}
                 onChange={(event) => updateForm("access_profile_id", event.target.value)}
               />
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="ta-input"
                 placeholder="Mã trạm mặc định (default_plant_id)"
                 value={form.default_plant_id}
                 onChange={(event) => updateForm("default_plant_id", event.target.value)}
@@ -334,7 +334,7 @@ export default function ProjectSitesPage() {
             </div>
 
             <textarea
-              className="w-full rounded border border-slate-300 px-3 py-2"
+              className="ta-textarea"
               placeholder="ghi_chu"
               value={form.notes}
               onChange={(event) => updateForm("notes", event.target.value)}

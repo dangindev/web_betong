@@ -8,7 +8,7 @@ from app.core.audit_middleware import AuditLogMiddleware
 from app.core.config import settings
 from app.core.errors import api_error_handler, generic_error_handler
 from app.core.logging import configure_logging
-from app.core.middleware import RequestIDMiddleware
+from app.core.middleware import InMemoryRateLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from app.core.sentry import initialize_sentry
 
 
@@ -29,6 +29,14 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestIDMiddleware)
+if settings.security_headers_enabled:
+    app.add_middleware(SecurityHeadersMiddleware)
+if settings.rate_limit_enabled:
+    app.add_middleware(
+        InMemoryRateLimitMiddleware,
+        requests_per_minute=settings.rate_limit_requests_per_minute,
+        login_requests_per_minute=settings.rate_limit_login_requests_per_minute,
+    )
 app.add_middleware(AuditLogMiddleware)
 app.add_middleware(
     CORSMiddleware,

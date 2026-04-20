@@ -1,23 +1,49 @@
-import Link from "next/link";
+import { ModuleSubnav } from "@/components/layout/module-subnav";
 
-const links = [
-  { href: "/kinh-doanh/bang-gia", label: "Biên tập bảng giá" },
-  { href: "/kinh-doanh/bao-gia", label: "Lập báo giá" },
-  { href: "/kinh-doanh/yeu-cau-do", label: "Trình hướng dẫn yêu cầu đổ" },
-  { href: "/kinh-doanh/don-hang", label: "Danh sách đơn bán / yêu cầu đổ" }
+const sections = [
+  {
+    label: "Định giá & báo giá",
+    items: [
+      {
+        href: "/kinh-doanh/bang-gia/danh-sach",
+        label: "Bảng giá",
+        description: "Quản lý bảng giá theo hiệu lực và phạm vi áp dụng."
+      },
+      {
+        href: "/kinh-doanh/bang-gia/quy-tac",
+        label: "Quy tắc giá",
+        description: "Biên tập công thức/rule áp dụng trong từng bảng giá."
+      },
+      {
+        href: "/kinh-doanh/bao-gia",
+        label: "Báo giá",
+        description: "Tạo báo giá và snapshot kết quả pricing."
+      }
+    ]
+  },
+  {
+    label: "Đơn hàng & nhu cầu đổ",
+    items: [
+      {
+        href: "/kinh-doanh/yeu-cau-do",
+        label: "Yêu cầu đổ",
+        description: "Nhập nhu cầu đổ theo khung thời gian và ràng buộc công trình."
+      },
+      {
+        href: "/kinh-doanh/don-hang",
+        label: "Đơn hàng",
+        description: "Theo dõi đơn bán và liên kết sang điều phối thực thi."
+      }
+    ]
+  }
 ];
 
 export default function SalesHomePage() {
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Không gian làm việc Kinh doanh - Giai đoạn 2</h2>
-      <div className="grid gap-3 md:grid-cols-2">
-        {links.map((item) => (
-          <Link key={item.href} href={item.href} className="rounded border border-slate-200 bg-white p-4 hover:bg-slate-50">
-            {item.label}
-          </Link>
-        ))}
-      </div>
-    </div>
+    <ModuleSubnav
+      title="Điều hành kinh doanh"
+      description="Luồng chuẩn: Bảng giá → Quy tắc giá → Báo giá → Yêu cầu đổ → Đơn hàng."
+      sections={sections}
+    />
   );
 }

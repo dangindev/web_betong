@@ -1,10 +1,24 @@
-import { ResourcePage } from "@/components/resources/resource-page";
+import { ModuleSubnav } from "@/components/layout/module-subnav";
 
-export default function SalesPriceBooksPage() {
+const links = [
+  {
+    href: "/kinh-doanh/bang-gia/danh-sach",
+    label: "Danh sách bảng giá",
+    description: "Trang danh sách và thao tác CRUD cho bảng giá."
+  },
+  {
+    href: "/kinh-doanh/bang-gia/quy-tac",
+    label: "Danh sách quy tắc giá",
+    description: "Trang danh sách và thao tác CRUD cho quy tắc giá."
+  }
+];
+
+export default function SalesPriceBooksHomePage() {
   return (
-    <div className="space-y-8">
-      <ResourcePage resource="price_books" title="Biên tập bảng giá" />
-      <ResourcePage resource="price_rules" title="Biên tập quy tắc giá" />
-    </div>
+    <ModuleSubnav
+      title="Bảng giá"
+      description="Mỗi cấp được tách thành trang riêng: danh sách bảng giá và danh sách quy tắc giá."
+      items={links}
+    />
   );
 }

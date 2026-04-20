@@ -1403,6 +1403,77 @@ def test_phase5_production_costing_and_margin_workflow() -> None:
         assert open_period_response.status_code == 200
         assert open_period_response.json()["period"]["status"] == "open"
 
+
+        materials_response = client.get("/api/v1/resources/materials?skip=0&limit=1", headers=headers)
+        assert materials_response.status_code == 200
+        material_items = materials_response.json()["items"]
+        if material_items:
+            material_id = str(material_items[0]["id"])
+        else:
+            created_material = client.post(
+                "/api/v1/resources/materials",
+                headers=headers,
+                json={
+                    "organization_id": organization_id,
+                    "code": f"P5-MAT-{uuid4().hex[:6].upper()}",
+                    "name": "Vat tu phase5",
+                    "material_type": "cement",
+                    "uom": "kg",
+                    "status": "active",
+                },
+            )
+            assert created_material.status_code == 200
+            material_id = str(created_material.json()["id"])
+
+        ticket_completed_at = datetime.combine(current_period_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=9)
+
+        from app.domain.models import BatchTicket
+
+        db = SessionLocal()
+        try:
+            batch_ticket = BatchTicket(
+                organization_id=organization_id,
+                plant_id=plant_id,
+                ticket_no=f"BT-{uuid4().hex[:6].upper()}",
+                load_completed_at=ticket_completed_at,
+                loaded_volume_m3=7.5,
+                status="closed",
+            )
+            db.add(batch_ticket)
+            db.commit()
+            db.refresh(batch_ticket)
+            batch_ticket_id = str(batch_ticket.id)
+        finally:
+            db.close()
+
+        batch_actual_response = client.post(
+            "/api/v1/costing/batch-tickets/actuals",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "batch_ticket_id": batch_ticket_id,
+                "components": [
+                    {
+                        "material_id": material_id,
+                        "target_qty": 120,
+                        "actual_qty": 121,
+                    }
+                ],
+                "note": "batch variance test",
+            },
+        )
+        assert batch_actual_response.status_code == 200
+        assert float(batch_actual_response.json()["summary"]["total_variance_qty"]) == 1.0
+
+        batch_variance_response = client.get(
+            f"/api/v1/costing/batch-ticket-variance?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert batch_variance_response.status_code == 200
+        assert int(batch_variance_response.json()["summary"]["ticket_count"]) >= 1
+        assert batch_variance_response.json()["items"]
+
         production_response = client.post(
             "/api/v1/costing/production-logs",
             headers=headers,
@@ -1473,6 +1544,11 @@ def test_phase5_production_costing_and_margin_workflow() -> None:
         )
         assert unit_cost_response.status_code == 200
         assert float(unit_cost_response.json()["unit_cost_snapshot"]["unit_cost"]) >= 0
+        snapshot_json = unit_cost_response.json()["unit_cost_snapshot"].get("snapshot_json") or {}
+        assert "cost_breakdown" in snapshot_json
+        assert "cost_breakdown_pct" in snapshot_json
+        assert "direct_material" in snapshot_json["cost_breakdown"]
+        assert "overhead_allocation" in snapshot_json["cost_breakdown"]
 
         margin_response = client.post(
             "/api/v1/costing/margin-snapshots",
@@ -1579,6 +1655,30 @@ def test_phase5_validation_and_guardrails() -> None:
             json={"organization_id": organization_id},
         )
         assert open_response.status_code == 200
+
+        invalid_batch_ticket_response = client.post(
+            "/api/v1/costing/batch-tickets/actuals",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "batch_ticket_id": str(uuid4()),
+                "components": [
+                    {
+                        "material_id": str(uuid4()),
+                        "target_qty": 100,
+                        "actual_qty": 101,
+                    }
+                ],
+            },
+        )
+        assert invalid_batch_ticket_response.status_code == 400
+
+        batch_variance_empty_response = client.get(
+            f"/api/v1/costing/batch-ticket-variance?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert batch_variance_empty_response.status_code == 200
 
         invalid_log_response = client.post(
             "/api/v1/costing/production-logs",
@@ -1819,3 +1919,204 @@ def test_phase5_permission_denied_for_non_costing_user() -> None:
         )
         assert close_response.status_code == 403
         assert "kỳ giá thành" in str(close_response.json()["detail"]).lower()
+
+        batch_actual_response = client.post(
+            "/api/v1/costing/batch-tickets/actuals",
+            headers=headers,
+            json={
+                "organization_id": TEST_ORG_ID,
+                "period_id": str(uuid4()),
+                "batch_ticket_id": str(uuid4()),
+                "components": [
+                    {
+                        "material_id": str(uuid4()),
+                        "target_qty": 100,
+                        "actual_qty": 101,
+                    }
+                ],
+            },
+        )
+        assert batch_actual_response.status_code == 403
+        assert "phase 5" in str(batch_actual_response.json()["detail"]).lower()
+
+        batch_variance_response = client.get(
+            f"/api/v1/costing/batch-ticket-variance?organization_id={TEST_ORG_ID}&period_id={uuid4()}",
+            headers=headers,
+        )
+        assert batch_variance_response.status_code == 403
+        assert "phase 5" in str(batch_variance_response.json()["detail"]).lower()
+
+
+def test_phase5_scheduler_v2_compare_and_learning_loop() -> None:
+    with TestClient(app) as client:
+        tokens = _login(client, "admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        context = _create_phase3_dispatch_context(client, headers, requires_pump=False)
+        run_v1_id = context["schedule_run_id"]
+
+        run_v2_response = client.post(
+            "/api/v1/dispatch/schedule-runs",
+            headers=headers,
+            json={
+                "organization_id": TEST_ORG_ID,
+                "scheduler_mode": "v2",
+            },
+        )
+        assert run_v2_response.status_code == 200
+        run_v2_payload = run_v2_response.json()
+        run_v2_id = str(run_v2_payload["schedule_run"]["id"])
+        assert run_v2_payload["schedule_run"]["algorithm_version"] == "heuristic_v2"
+
+        compare_response = client.get(
+            f"/api/v1/dispatch/scheduler-kpi-compare?organization_id={TEST_ORG_ID}&run_id_v1={run_v1_id}&run_id_v2={run_v2_id}",
+            headers=headers,
+        )
+        assert compare_response.status_code == 200
+        compare_payload = compare_response.json()
+        assert compare_payload["run_v1"]["run_id"] == run_v1_id
+        assert compare_payload["run_v2"]["run_id"] == run_v2_id
+        assert isinstance(compare_payload["delta"], dict)
+
+        from app.domain.models import Trip
+
+        db = SessionLocal()
+        try:
+            trip_rows = db.execute(select(Trip).where(Trip.pour_request_id == context["pour_request_id"])).scalars().all()
+            assert trip_rows
+            now = datetime.now(tz=timezone.utc)
+            for idx, item in enumerate(trip_rows):
+                item.started_at = now - timedelta(minutes=130 + idx * 5)
+                item.ended_at = now - timedelta(minutes=35 + idx * 3)
+                item.actual_distance_km = 16 + idx
+                item.actual_volume_m3 = 6.5
+            db.commit()
+        finally:
+            db.close()
+
+        reconcile_response = client.post(
+            f"/api/v1/dispatch/reconciliation/{context['pour_request_id']}",
+            headers=headers,
+            json={
+                "organization_id": TEST_ORG_ID,
+                "actual_volume_m3": 13.0,
+                "actual_trip_count": 2,
+                "reason_code": "learning-loop-test",
+                "note": "phase5 learning loop",
+            },
+        )
+        assert reconcile_response.status_code == 200
+        learning_payload = reconcile_response.json()["learning_loop"]
+        assert learning_payload["updated"] is True
+        route_key = str(learning_payload["route_estimate"]["route_key"])
+
+        from app.domain.models import SystemSetting, TravelEstimate
+
+        db = SessionLocal()
+        try:
+            estimate = (
+                db.execute(
+                    select(TravelEstimate)
+                    .where(TravelEstimate.organization_id == TEST_ORG_ID)
+                    .where(TravelEstimate.route_key == route_key)
+                )
+                .scalars()
+                .first()
+            )
+            assert estimate is not None
+            assert str(estimate.source) == "learning_loop"
+
+            setting = (
+                db.execute(
+                    select(SystemSetting)
+                    .where(SystemSetting.organization_id == TEST_ORG_ID)
+                    .where(SystemSetting.key == "dispatch_scheduler_score_weights")
+                )
+                .scalars()
+                .first()
+            )
+            assert setting is not None
+            assert isinstance(setting.value_json, dict)
+            assert "delay_weight" in setting.value_json
+            assert "empty_km_weight" in setting.value_json
+            assert "utilization_weight" in setting.value_json
+        finally:
+            db.close()
+
+
+def test_phase5_bi_materialized_views_refresh_and_query() -> None:
+    with TestClient(app) as client:
+        tokens = _login(client, "admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        plants_response = client.get("/api/v1/resources/plants?skip=0&limit=1", headers=headers)
+        assert plants_response.status_code == 200
+        plants = plants_response.json()["items"]
+        assert plants
+        organization_id = str(plants[0]["organization_id"])
+
+        period_date = date.today() + timedelta(days=240)
+        period_response = client.post(
+            "/api/v1/costing/periods",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_code": f"P5-BI-{uuid4().hex[:6].upper()}",
+                "start_date": period_date.isoformat(),
+                "end_date": period_date.isoformat(),
+                "note": "Kỳ kiểm thử BI materialized view",
+            },
+        )
+        assert period_response.status_code == 200
+        period_id = str(period_response.json()["period"]["id"])
+
+        unit_cost_response = client.post(
+            "/api/v1/costing/unit-cost-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "output_volume_m3": 12,
+                "total_cost": 1800,
+                "note": "unit cost bi test",
+            },
+        )
+        assert unit_cost_response.status_code == 200
+
+        margin_response = client.post(
+            "/api/v1/costing/margin-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "revenue_amount": 2400,
+                "cost_amount": 1800,
+                "note": "margin bi test",
+            },
+        )
+        assert margin_response.status_code == 200
+
+        refresh_response = client.post(
+            "/api/v1/costing/bi/materialized-views/refresh",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert refresh_response.status_code == 200
+        refresh_payload = refresh_response.json()
+        assert isinstance(refresh_payload.get("views"), list)
+        assert any(item.get("name") == "mv_costing_period_summary" for item in refresh_payload["views"])
+        assert any(item.get("name") == "mv_margin_customer_summary" for item in refresh_payload["views"])
+
+        query_response = client.get(
+            f"/api/v1/costing/bi/materialized-views?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert query_response.status_code == 200
+        query_payload = query_response.json()
+        assert isinstance(query_payload.get("views"), list)
+
+        period_view = next(item for item in query_payload["views"] if item.get("name") == "mv_costing_period_summary")
+        assert any(str(row.get("period_id")) == period_id for row in period_view.get("rows", []))
+
+        margin_view = next(item for item in query_payload["views"] if item.get("name") == "mv_margin_customer_summary")
+        assert len(margin_view.get("rows", [])) >= 1

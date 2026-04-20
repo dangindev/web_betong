@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { apiListResource, apiPostTripEvent } from "@/lib/api/client";
@@ -18,7 +19,6 @@ export default function StationQueueBoardPage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const [organizationId, setOrganizationId] = useState("");
   const [plantFilter, setPlantFilter] = useState("");
-  const [slots, setSlots] = useState<GenericRow[]>([]);
   const [scheduledTrips, setScheduledTrips] = useState<GenericRow[]>([]);
   const [trips, setTrips] = useState<GenericRow[]>([]);
   const [busyTripId, setBusyTripId] = useState<string | null>(null);
@@ -29,18 +29,16 @@ export default function StationQueueBoardPage() {
     if (!accessToken) return;
     setError(null);
     try {
-      const [slotRes, scheduledRes, tripRes] = await Promise.all([
-        apiListResource<GenericRow>("plant_capacity_slots", accessToken, { skip: 0, limit: 500 }),
+      const [scheduledRes, tripRes] = await Promise.all([
         apiListResource<GenericRow>("scheduled_trips", accessToken, { skip: 0, limit: 500 }),
         apiListResource<GenericRow>("trips", accessToken, { skip: 0, limit: 500 })
       ]);
-      setSlots(slotRes.items);
       setScheduledTrips(scheduledRes.items);
       setTrips(tripRes.items);
 
       if (!organizationId) {
         const firstOrg = String(
-          slotRes.items[0]?.organization_id ?? scheduledRes.items[0]?.organization_id ?? tripRes.items[0]?.organization_id ?? ""
+          scheduledRes.items[0]?.organization_id ?? tripRes.items[0]?.organization_id ?? ""
         );
         if (firstOrg) setOrganizationId(firstOrg);
       }
@@ -105,49 +103,46 @@ export default function StationQueueBoardPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold">Bảng hàng chờ trạm</h2>
-        <p className="text-sm text-slate-600">Nhân sự trạm phát hành mốc bắt đầu nạp/kết thúc nạp và theo dõi hàng chờ theo từng trạm.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">Bảng hàng chờ trạm</h2>
+          <p className="text-sm text-slate-600">Nhân sự trạm phát hành mốc bắt đầu nạp/kết thúc nạp và theo dõi hàng chờ theo từng trạm.</p>
+        </div>
+        <Link className="ta-button-secondary h-10 px-4 text-sm" href="/dieu-phoi/hang-cho-tram/khung-nang-luc-tram">
+          Mở trang Khung năng lực trạm
+        </Link>
       </div>
 
       <div className="grid gap-2 md:grid-cols-3">
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Lọc mã trạm (plant_id)"
           value={plantFilter}
           onChange={(event) => setPlantFilter(event.target.value)}
         />
-        <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800" onClick={() => void load()}>
+        <button className="ta-button" onClick={() => void load()}>
           Làm mới
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded border border-slate-200 bg-white p-3">
+      <div className="grid gap-4 md:grid-cols-[320px_minmax(0,1fr)]">
+        <section className="rounded border border-slate-200 bg-white p-3">
           <h3 className="text-sm font-semibold">Khung năng lực trạm</h3>
-          <ul className="mt-2 space-y-2 text-sm">
-            {slots.length === 0 ? <li className="text-slate-500">Chưa có khung năng lực.</li> : null}
-            {slots.map((slot) => (
-              <li key={String(slot.id)} className="rounded border border-slate-100 px-2 py-1">
-                <div className="font-medium">trạm {toShortId(slot.plant_id)}</div>
-                <div>
-                  {String(slot.slot_start_at ?? "-")} → {String(slot.slot_end_at ?? "-")}
-                </div>
-                <div className="text-xs text-slate-500">
-                  đã dùng {String(slot.used_loads ?? 0)} / {String(slot.max_loads ?? 0)}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
+          <p className="mt-1 text-xs text-slate-600">
+            Khung năng lực trạm đã tách thành trang riêng để đúng phân cấp điều hướng và có thể bấm trực tiếp.
+          </p>
+          <Link className="ta-button-secondary mt-3 inline-flex h-9 items-center px-3 text-xs" href="/dieu-phoi/hang-cho-tram/khung-nang-luc-tram">
+            Đi tới Khung năng lực trạm
+          </Link>
+        </section>
 
-        <div className="rounded border border-slate-200 bg-white p-3">
+        <section className="rounded border border-slate-200 bg-white p-3">
           <h3 className="text-sm font-semibold">Danh sách chuyến chờ</h3>
           <ul className="mt-2 space-y-2 text-sm">
             {filteredTrips.length === 0 ? <li className="text-slate-500">Chưa có chuyến được lập lịch.</li> : null}
@@ -172,14 +167,14 @@ export default function StationQueueBoardPage() {
                       <>
                         <button
                           disabled={busy}
-                          className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500 disabled:opacity-60"
+                          className="ta-button-secondary h-8 px-3 text-xs"
                           onClick={() => void emitTripEvent(tripId, "load_start")}
                         >
                           Bắt đầu nạp
                         </button>
                         <button
                           disabled={busy}
-                          className="rounded bg-blue-700 px-2 py-1 text-xs text-white hover:bg-blue-600 disabled:opacity-60"
+                          className="ta-button-secondary h-8 px-3 text-xs"
                           onClick={() => void emitTripEvent(tripId, "load_end")}
                         >
                           Kết thúc nạp
@@ -187,7 +182,7 @@ export default function StationQueueBoardPage() {
                         {nextEvent ? (
                           <button
                             disabled={busy}
-                            className="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-500 disabled:opacity-60"
+                            className="ta-button-secondary h-8 px-3 text-xs"
                             onClick={() => void emitTripEvent(tripId, nextEvent)}
                           >
                             Sự kiện tiếp theo: {nextEvent}
@@ -202,7 +197,7 @@ export default function StationQueueBoardPage() {
               );
             })}
           </ul>
-        </div>
+        </section>
       </div>
 
       <div className="text-sm">

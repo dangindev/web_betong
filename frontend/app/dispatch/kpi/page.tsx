@@ -89,30 +89,30 @@ export default function DispatchKpiPage() {
 
       <div className="grid gap-2 md:grid-cols-4">
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           type="date"
           value={snapshotDate}
           onChange={(event) => setSnapshotDate(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã trạm (plant_id, tuỳ chọn)"
           value={plantId}
           onChange={(event) => setPlantId(event.target.value)}
         />
-        <button className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500" onClick={() => void handleGenerateSnapshot()}>
+        <button className="ta-button-primary" onClick={() => void handleGenerateSnapshot()}>
           Tạo ảnh chụp
         </button>
       </div>
 
       <div className="flex items-center gap-2 text-sm">
-        <button className="rounded bg-slate-200 px-3 py-2 hover:bg-slate-300" onClick={() => void load()}>
+        <button className="ta-button" onClick={() => void load()}>
           Làm mới
         </button>
         {organizationId ? (

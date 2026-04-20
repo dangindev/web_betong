@@ -45,6 +45,24 @@
     font: inherit;
   }
 
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]),
+  select,
+  textarea {
+    @apply h-11 w-full rounded-xl border border-gray-300 bg-white px-3.5 text-sm text-gray-800 shadow-theme-sm outline-none transition;
+    @apply focus:border-brand-500 focus:ring-4 focus:ring-brand-100;
+  }
+
+  textarea {
+    @apply min-h-[96px] py-2.5;
+  }
+
+  input:disabled,
+  select:disabled,
+  textarea:disabled,
+  button:disabled {
+    @apply cursor-not-allowed opacity-60;
+  }
+
   table {
     border-collapse: separate;
     border-spacing: 0;
@@ -54,6 +72,53 @@
 @layer components {
   .ta-card {
     @apply rounded-2xl border border-gray-200 bg-white shadow-theme-sm;
+  }
+
+  .ta-field {
+    @apply space-y-1.5;
+  }
+
+  .ta-label {
+    @apply text-sm font-medium text-gray-700;
+  }
+
+  .ta-help {
+    @apply text-xs text-gray-500;
+  }
+
+  .ta-input,
+  .ta-select,
+  .ta-textarea {
+    @apply h-11 w-full rounded-xl border border-gray-300 bg-white px-3.5 text-sm text-gray-800 shadow-theme-sm outline-none transition;
+    @apply focus:border-brand-500 focus:ring-4 focus:ring-brand-100;
+  }
+
+  .ta-textarea {
+    @apply min-h-[96px] py-2.5;
+  }
+
+  .ta-button,
+  .ta-button-primary,
+  .ta-button-secondary,
+  .ta-button-danger {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition;
+    @apply disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .ta-button {
+    @apply border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900;
+  }
+
+  .ta-button-primary {
+    @apply border-brand-500 bg-brand-500 text-white hover:border-brand-600 hover:bg-brand-600;
+  }
+
+  .ta-button-secondary {
+    @apply border-brand-200 bg-brand-50 text-brand-700 hover:border-brand-300 hover:bg-brand-100;
+  }
+
+  .ta-button-danger {
+    @apply border-error-500 bg-error-500 text-white hover:border-error-700 hover:bg-error-700;
   }
 
   .ta-menu-item {
@@ -68,7 +133,23 @@
     @apply text-gray-600 hover:bg-gray-100 hover:text-gray-900;
   }
 
-  .ta-input {
-    @apply h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-200;
+  .ta-menu-subitem {
+    @apply ml-6 flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition;
+  }
+
+  .ta-menu-subitem-active {
+    @apply bg-brand-50 text-brand-700;
+  }
+
+  .ta-menu-subitem-inactive {
+    @apply text-gray-600 hover:bg-gray-100 hover:text-gray-900;
+  }
+
+  .ta-link-list {
+    @apply divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white;
+  }
+
+  .ta-link-list-item {
+    @apply flex items-center justify-between px-4 py-3 text-sm text-gray-700 transition hover:bg-gray-50 hover:text-gray-900;
   }
 }

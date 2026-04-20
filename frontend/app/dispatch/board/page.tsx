@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  apiCompareSchedulerKpis,
   apiCreateScheduleRun,
   apiDispatchRealtimeUrl,
   apiGetScheduleRunConflicts,
@@ -25,16 +26,38 @@ function toShortId(value: unknown): string {
   return text.length > 16 ? `${text.slice(0, 8)}...${text.slice(-4)}` : text;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function formatMetric(value: unknown): string {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return "-";
+    }
+    return String(Math.round(value * 1000) / 1000);
+  }
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return String(value);
+}
+
 export default function DispatchBoardPage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const [organizationId, setOrganizationId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
+  const [schedulerMode, setSchedulerMode] = useState<"v1" | "v2">("v1");
   const [runs, setRuns] = useState<GenericRow[]>([]);
   const [trips, setTrips] = useState<GenericRow[]>([]);
   const [conflicts, setConflicts] = useState<GenericRow[]>([]);
   const [overrideVehicle, setOverrideVehicle] = useState<Record<string, string>>({});
   const [overridePump, setOverridePump] = useState<Record<string, string>>({});
   const [live, setLive] = useState<RealtimeSnapshot | null>(null);
+  const [kpiCompare, setKpiCompare] = useState<GenericRow | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -104,6 +127,23 @@ export default function DispatchBoardPage() {
     return trips.filter((item) => String(item.schedule_run_id ?? "") === selectedRunId);
   }, [trips, selectedRunId]);
 
+  const compareDeltaEntries = useMemo(() => {
+    const comparePayload = asRecord(kpiCompare);
+    const delta = comparePayload ? asRecord(comparePayload.delta) : null;
+    if (!delta) return [] as Array<[string, unknown]>;
+    return Object.entries(delta);
+  }, [kpiCompare]);
+
+  const compareRunLabels = useMemo(() => {
+    const comparePayload = asRecord(kpiCompare);
+    const runV1 = comparePayload ? asRecord(comparePayload.run_v1) : null;
+    const runV2 = comparePayload ? asRecord(comparePayload.run_v2) : null;
+    return {
+      v1: toShortId(runV1?.run_id),
+      v2: toShortId(runV2?.run_id)
+    };
+  }, [kpiCompare]);
+
   async function handleRunScheduler() {
     if (!accessToken || !organizationId) {
       setError("Thiếu phiên đăng nhập hoặc mã tổ chức (organization_id).");
@@ -112,13 +152,19 @@ export default function DispatchBoardPage() {
     setError(null);
     setMessage(null);
     try {
-      const result = await apiCreateScheduleRun({ organization_id: organizationId }, accessToken);
+      const result = await apiCreateScheduleRun(
+        {
+          organization_id: organizationId,
+          scheduler_mode: schedulerMode
+        },
+        accessToken
+      );
       const run = result.schedule_run as Record<string, unknown> | undefined;
       if (run?.id) {
         setSelectedRunId(String(run.id));
-        setMessage(`Đã chạy bộ lập lịch: ${toShortId(run.id)}`);
+        setMessage(`Đã chạy scheduler ${schedulerMode.toUpperCase()}: ${toShortId(run.id)}`);
       } else {
-        setMessage("Đã chạy bộ lập lịch.");
+        setMessage(`Đã chạy scheduler ${schedulerMode.toUpperCase()}.`);
       }
       await loadResources();
     } catch (e) {
@@ -135,6 +181,18 @@ export default function DispatchBoardPage() {
       setConflicts(items);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không tải được danh sách xung đột.");
+    }
+  }
+
+  async function handleCompareKpis() {
+    if (!accessToken || !organizationId) return;
+    setError(null);
+    try {
+      const payload = await apiCompareSchedulerKpis(organizationId, accessToken);
+      setKpiCompare(payload);
+      setMessage("Đã tải so sánh KPI giữa scheduler v1 và v2.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không thể tải dữ liệu so sánh KPI.");
     }
   }
 
@@ -171,18 +229,20 @@ export default function DispatchBoardPage() {
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-semibold">Bảng điều phối (Gantt MVP)</h2>
-        <p className="text-sm text-slate-600">Bộ lập lịch v1, danh sách xung đột, ghi đè thủ công và ảnh chụp thời gian thực qua SSE polling.</p>
+        <p className="text-sm text-slate-600">
+          Chạy scheduler v1/v2, theo dõi xung đột, ghi đè thủ công và so sánh KPI giữa hai phiên bản lập lịch.
+        </p>
       </div>
 
-      <div className="grid gap-2 md:grid-cols-3">
+      <div className="grid gap-2 md:grid-cols-4">
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
         <select
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           value={selectedRunId}
           onChange={(event) => setSelectedRunId(event.target.value)}
         >
@@ -193,18 +253,29 @@ export default function DispatchBoardPage() {
             </option>
           ))}
         </select>
-        <div className="flex items-center gap-2">
-          <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800" onClick={() => void handleRunScheduler()}>
+        <select
+          className="ta-input"
+          value={schedulerMode}
+          onChange={(event) => setSchedulerMode(event.target.value as "v1" | "v2")}
+        >
+          <option value="v1">Scheduler v1</option>
+          <option value="v2">Scheduler v2</option>
+        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="ta-button" onClick={() => void handleRunScheduler()}>
             Chạy bộ lập lịch
           </button>
-          <button className="rounded bg-slate-200 px-3 py-2 text-sm hover:bg-slate-300" onClick={() => void handleLoadConflicts()}>
+          <button className="ta-button" onClick={() => void handleLoadConflicts()}>
             Xem xung đột
+          </button>
+          <button className="ta-button-secondary" onClick={() => void handleCompareKpis()}>
+            So sánh KPI
           </button>
         </div>
       </div>
 
       <div className="flex items-center gap-3 text-sm">
-        <button className="rounded bg-slate-200 px-3 py-1.5 hover:bg-slate-300" onClick={() => void loadResources()}>
+        <button className="ta-button h-8 px-3 text-xs" onClick={() => void loadResources()}>
           {loading ? "Đang tải..." : "Làm mới bảng"}
         </button>
         {live ? (
@@ -215,6 +286,48 @@ export default function DispatchBoardPage() {
         {message ? <span className="text-emerald-700">{message}</span> : null}
         {error ? <span className="text-rose-700">{error}</span> : null}
       </div>
+
+      {kpiCompare ? (
+        <div className="rounded border border-slate-200 bg-white p-3">
+          <h3 className="text-sm font-semibold">So sánh KPI scheduler</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Run v1: {compareRunLabels.v1} · Run v2: {compareRunLabels.v2}
+          </p>
+          {compareDeltaEntries.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">Không có KPI để so sánh.</p>
+          ) : (
+            <div className="mt-2 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">KPI</th>
+                    <th className="px-3 py-2">Delta (v2 - v1)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compareDeltaEntries.map(([key, value]) => {
+                    const deltaValue = typeof value === "number" ? value : null;
+                    const deltaClass =
+                      deltaValue === null
+                        ? "text-slate-500"
+                        : deltaValue < 0
+                          ? "text-emerald-700"
+                          : deltaValue > 0
+                            ? "text-rose-700"
+                            : "text-slate-600";
+                    return (
+                      <tr key={key} className="border-t border-slate-100">
+                        <td className="px-3 py-2 font-medium">{key}</td>
+                        <td className={`px-3 py-2 ${deltaClass}`}>{formatMetric(value)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto rounded border border-slate-200 bg-white">
         <table className="min-w-full text-sm">
@@ -258,19 +371,19 @@ export default function DispatchBoardPage() {
                   <td className="px-3 py-2">
                     <div className="space-y-2">
                       <input
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                        className="ta-input h-8 w-full text-xs"
                         placeholder="Mã xe mới (vehicle_id)"
                         value={overrideVehicle[tripId] ?? ""}
                         onChange={(event) => setOverrideVehicle((prev) => ({ ...prev, [tripId]: event.target.value }))}
                       />
                       <input
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                        className="ta-input h-8 w-full text-xs"
                         placeholder="Mã bơm mới (pump_id)"
                         value={overridePump[tripId] ?? ""}
                         onChange={(event) => setOverridePump((prev) => ({ ...prev, [tripId]: event.target.value }))}
                       />
                       <button
-                        className="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-500"
+                        className="ta-button-secondary h-8 px-3 text-xs"
                         onClick={() => void handleOverride(tripId)}
                       >
                         Ghi đè và khóa
