@@ -570,6 +570,94 @@ def list_unit_cost_snapshots(
     return [serialize_instance(item) for item in items]
 
 
+def get_unit_cost_variance_preview(
+    db: Session,
+    *,
+    organization_id: str,
+    period_id: str,
+) -> dict[str, Any]:
+    period = _get_cost_period(db, organization_id, period_id)
+
+    current_snapshot = (
+        db.execute(
+            select(UnitCostSnapshot)
+            .where(UnitCostSnapshot.organization_id == organization_id)
+            .where(UnitCostSnapshot.period_id == period_id)
+            .order_by(UnitCostSnapshot.created_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+    current_start_date = _to_date(period.start_date)
+    previous_candidates = (
+        db.execute(
+            select(CostPeriod)
+            .where(CostPeriod.organization_id == organization_id)
+            .where(CostPeriod.id != period_id)
+            .order_by(CostPeriod.end_date.desc(), CostPeriod.start_date.desc(), CostPeriod.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+    previous_period: CostPeriod | None = None
+    if current_start_date:
+        for candidate in previous_candidates:
+            candidate_end_date = _to_date(candidate.end_date)
+            if candidate_end_date and candidate_end_date < current_start_date:
+                previous_period = candidate
+                break
+
+    if previous_period is None and previous_candidates:
+        previous_period = previous_candidates[0]
+
+    previous_snapshot: UnitCostSnapshot | None = None
+    if previous_period:
+        previous_snapshot = (
+            db.execute(
+                select(UnitCostSnapshot)
+                .where(UnitCostSnapshot.organization_id == organization_id)
+                .where(UnitCostSnapshot.period_id == previous_period.id)
+                .order_by(UnitCostSnapshot.created_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+
+    variance_amount: float | None = None
+    variance_pct: float | None = None
+    variance_direction = 'n/a'
+
+    if current_snapshot and previous_snapshot:
+        current_unit_cost = _as_decimal(current_snapshot.unit_cost)
+        previous_unit_cost = _as_decimal(previous_snapshot.unit_cost)
+        variance_decimal = _quantize_money(current_unit_cost - previous_unit_cost)
+
+        variance_amount = float(variance_decimal)
+        if variance_decimal > 0:
+            variance_direction = 'increase'
+        elif variance_decimal < 0:
+            variance_direction = 'decrease'
+        else:
+            variance_direction = 'flat'
+
+        if previous_unit_cost > 0:
+            variance_pct = float(_quantize_qty((variance_decimal / previous_unit_cost) * Decimal('100')))
+
+    return {
+        'period': serialize_instance(period),
+        'current_snapshot': serialize_instance(current_snapshot) if current_snapshot else None,
+        'previous_period': serialize_instance(previous_period) if previous_period else None,
+        'previous_snapshot': serialize_instance(previous_snapshot) if previous_snapshot else None,
+        'variance': {
+            'amount': variance_amount,
+            'pct': variance_pct,
+            'direction': variance_direction,
+        },
+    }
+
+
 def create_margin_snapshot(
     db: Session,
     *,

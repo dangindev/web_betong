@@ -14,6 +14,7 @@ from app.domain.models import (
     InventoryLedgerEntry,
     InventoryStockTake,
     Material,
+    UnitCostSnapshot,
     Warehouse,
 )
 
@@ -748,10 +749,55 @@ def close_cost_period(
             entry.period_id = period.id
             db.add(entry)
 
+    from app.application.costing import create_unit_cost_snapshot, run_allocation
+
+    allocation_payload = run_allocation(
+        db,
+        organization_id=organization_id,
+        period_id=period_id,
+        actor_user_id=actor_user_id,
+        note=note or f"Tự động phân bổ khi chốt kỳ {period.period_code}",
+    )
+    allocation_run = allocation_payload.get("allocation_run")
+
+    source_run_id: str | None = None
+    if isinstance(allocation_run, dict) and allocation_run.get("id"):
+        source_run_id = str(allocation_run["id"])
+
+    snapshot_payload = create_unit_cost_snapshot(
+        db,
+        organization_id=organization_id,
+        period_id=period_id,
+        actor_user_id=actor_user_id,
+        concrete_product_id=None,
+        source_run_id=source_run_id,
+        output_volume_m3=None,
+        total_cost=None,
+        note=note or f"Tự động chốt snapshot đơn giá khi đóng kỳ {period.period_code}",
+    )
+
+    frozen_snapshot: dict[str, Any] | None = None
+    unit_cost_snapshot_data = snapshot_payload.get("unit_cost_snapshot")
+    if isinstance(unit_cost_snapshot_data, dict):
+        snapshot_id = str(unit_cost_snapshot_data.get("id") or "")
+        if snapshot_id:
+            snapshot = db.get(UnitCostSnapshot, snapshot_id)
+            if snapshot and str(snapshot.organization_id) == str(organization_id):
+                snapshot.status = "frozen"
+                snapshot.closed_at = _utcnow()
+                snapshot.closed_by = actor_user_id
+                db.add(snapshot)
+                db.flush()
+                frozen_snapshot = serialize_instance(snapshot)
+
     period.status = "closed"
     period.closed_at = _utcnow()
     period.closed_by = actor_user_id
-    period.preclose_check_json = checklist
+    period.preclose_check_json = {
+        **checklist,
+        "allocation_run_id": allocation_run.get("id") if isinstance(allocation_run, dict) else None,
+        "unit_cost_snapshot_id": frozen_snapshot.get("id") if frozen_snapshot else None,
+    }
     if note:
         period.note = note
 
@@ -761,6 +807,8 @@ def close_cost_period(
     return {
         "period": serialize_instance(period),
         "checklist": checklist,
+        "allocation_run": allocation_run,
+        "unit_cost_snapshot": frozen_snapshot,
     }
 
 

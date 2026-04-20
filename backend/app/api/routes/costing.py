@@ -14,6 +14,7 @@ from app.application.costing import (
     create_production_log,
     create_unit_cost_snapshot,
     get_allocation_run,
+    get_unit_cost_variance_preview,
     list_margin_snapshots,
     list_production_logs,
     list_unit_cost_snapshots,
@@ -297,6 +298,24 @@ def get_phase5_unit_cost_snapshots(
             limit=limit,
         )
     }
+
+
+@router.get("/unit-cost-variance-preview")
+def get_phase5_unit_cost_variance_preview(
+    organization_id: str = Query(...),
+    period_id: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    _ensure_costing_permission(db, current_user, "read")
+    try:
+        return get_unit_cost_variance_preview(
+            db,
+            organization_id=organization_id,
+            period_id=period_id,
+        )
+    except ValueError as exc:
+        _raise_service_error(exc)
 
 
 @router.post("/margin-snapshots")

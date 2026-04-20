@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ApiError,
+  apiCostPeriodAction,
+  apiCostPeriodPrecloseChecklist,
   apiDispatchRealtimeUrl,
   apiDispatchReportUrl,
   apiExportResourceUrl,
   apiListResource,
   apiQuotationPdfUrl,
+  apiUnitCostVariancePreview,
   isAuthError
 } from "../lib/api/client";
 import { isDispatchTripActive, nextPumpEvent, nextTripEvent } from "../lib/dispatch/state";
@@ -66,6 +69,124 @@ describe("frontend phase 2/3 smoke", () => {
     const pdf = apiDispatchReportUrl("org-1", "pdf");
     expect(csv).toContain("report_format=csv");
     expect(pdf).toContain("report_format=pdf");
+  });
+
+  it("calls preclose checklist endpoint with expected query", async () => {
+    const originalFetch = globalThis.fetch;
+    const calledUrls: string[] = [];
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calledUrls.push(String(input));
+      return new Response(
+        JSON.stringify({ checklist: { ready_to_close: true } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      await apiCostPeriodPrecloseChecklist("period-1", "org-1", "token-123");
+      expect(calledUrls[0]).toContain("/api/v1/costing/periods/period-1/preclose-checklist");
+      expect(calledUrls[0]).toContain("organization_id=org-1");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("posts close period action payload to workflow endpoint", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({ period: { status: "closed" } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      await apiCostPeriodAction(
+        "period-1",
+        "close",
+        {
+          organization_id: "org-1",
+          note: "close by test"
+        },
+        "token-123"
+      );
+
+      expect(requests[0].url).toContain("/api/v1/costing/periods/period-1/close");
+      expect(requests[0].init?.method).toBe("POST");
+      expect(String(requests[0].init?.body)).toContain('"organization_id":"org-1"');
+      expect(String(requests[0].init?.body)).toContain('"note":"close by test"');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("throws ApiError when close period action fails", async () => {
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ detail: "Không thể chốt kỳ" }), {
+        status: 400,
+        headers: { "content-type": "application/json" }
+      })
+    ) as typeof fetch;
+
+    try {
+      await expect(
+        apiCostPeriodAction(
+          "period-1",
+          "close",
+          {
+            organization_id: "org-1"
+          },
+          "token-123"
+        )
+      ).rejects.toMatchObject({
+        name: "ApiError",
+        status: 400,
+        detail: "Không thể chốt kỳ"
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("calls unit cost variance preview endpoint with expected query", async () => {
+    const originalFetch = globalThis.fetch;
+    const calledUrls: string[] = [];
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calledUrls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          current_snapshot: null,
+          previous_snapshot: null,
+          variance: { amount: null, pct: null, direction: "n/a" }
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      await apiUnitCostVariancePreview("org-1", "period-1", "token-123");
+      expect(calledUrls[0]).toContain("/api/v1/costing/unit-cost-variance-preview");
+      expect(calledUrls[0]).toContain("organization_id=org-1");
+      expect(calledUrls[0]).toContain("period_id=period-1");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("progresses trip state machine in expected order", () => {

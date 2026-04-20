@@ -833,6 +833,22 @@ export async function apiCostPeriodPrecloseChecklist(
   return parseResponse<Record<string, unknown>>(response);
 }
 
+export async function apiUnitCostVariancePreview(
+  organizationId: string,
+  periodId: string,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/unit-cost-variance-preview", {
+      organization_id: organizationId,
+      period_id: periodId
+    }),
+    accessToken
+  );
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
 export type Phase5ProductionLogPayload = {
   organization_id: string;
   period_id?: string;

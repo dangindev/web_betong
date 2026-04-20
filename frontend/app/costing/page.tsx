@@ -3,6 +3,8 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import {
+  apiCostPeriodAction,
+  apiCostPeriodPrecloseChecklist,
   apiCreateAllocationRule,
   apiCreateCostPool,
   apiCreateMarginSnapshot,
@@ -12,7 +14,8 @@ import {
   apiListProductionLogs,
   apiListResource,
   apiListUnitCostSnapshots,
-  apiRunAllocation
+  apiRunAllocation,
+  apiUnitCostVariancePreview
 } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/store/auth-store";
 
@@ -27,12 +30,28 @@ function toNumber(value: string, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function toBool(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const normalized = toText(value).toLowerCase();
+  return normalized === "true" || normalized === "1";
+}
+
 function formatDate(value: unknown): string {
   const raw = toText(value);
   if (!raw) return "-";
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return raw;
   return parsed.toLocaleString("vi-VN", { hour12: false });
+}
+
+function formatNumber(value: unknown, digits = 2): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "-";
+  return parsed.toLocaleString("vi-VN", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: 0
+  });
 }
 
 export default function CostingPhase5Page() {
@@ -50,6 +69,9 @@ export default function CostingPhase5Page() {
   const [marginSnapshots, setMarginSnapshots] = useState<GenericRow[]>([]);
 
   const [selectedPeriodId, setSelectedPeriodId] = useState("");
+  const [precloseChecklist, setPrecloseChecklist] = useState<GenericRow | null>(null);
+  const [variancePreview, setVariancePreview] = useState<GenericRow | null>(null);
+  const [workflowNote, setWorkflowNote] = useState("");
 
   const [productionLogType, setProductionLogType] = useState<"crushing" | "batching" | "production">("batching");
   const [productionPlantId, setProductionPlantId] = useState("");
@@ -79,6 +101,9 @@ export default function CostingPhase5Page() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastAllocationRun, setLastAllocationRun] = useState<GenericRow | null>(null);
+
+  const selectedPeriod = periods.find((item) => toText(item.id) === selectedPeriodId) ?? null;
+  const selectedPeriodStatus = toText(selectedPeriod?.status).toLowerCase();
 
   async function loadReferenceData() {
     if (!accessToken) return;
@@ -151,6 +176,26 @@ export default function CostingPhase5Page() {
     }
   }
 
+  async function loadCloseWorkflowData() {
+    if (!accessToken || !organizationId || !selectedPeriodId) {
+      setPrecloseChecklist(null);
+      setVariancePreview(null);
+      return;
+    }
+
+    try {
+      const [checklistRes, varianceRes] = await Promise.all([
+        apiCostPeriodPrecloseChecklist(selectedPeriodId, organizationId, accessToken),
+        apiUnitCostVariancePreview(organizationId, selectedPeriodId, accessToken)
+      ]);
+
+      setPrecloseChecklist((checklistRes.checklist as GenericRow) ?? null);
+      setVariancePreview(varianceRes);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không tải được dữ liệu wizard chốt kỳ.");
+    }
+  }
+
   useEffect(() => {
     void loadReferenceData();
   }, [accessToken]);
@@ -158,6 +203,56 @@ export default function CostingPhase5Page() {
   useEffect(() => {
     void loadPhase5Data();
   }, [accessToken, organizationId, selectedPeriodId]);
+
+  useEffect(() => {
+    void loadCloseWorkflowData();
+  }, [accessToken, organizationId, selectedPeriodId]);
+
+  async function handleCostPeriodAction(action: "open" | "close" | "reopen") {
+    if (!accessToken || !organizationId || !selectedPeriodId) return;
+
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await apiCostPeriodAction(
+        selectedPeriodId,
+        action,
+        {
+          organization_id: organizationId,
+          note: workflowNote || undefined
+        },
+        accessToken
+      );
+
+      if (action === "close") {
+        const run = (response.allocation_run as GenericRow | undefined) ?? null;
+        const snapshot = (response.unit_cost_snapshot as GenericRow | undefined) ?? null;
+        const runCode = toText(run?.run_code);
+        const snapshotCode = toText(snapshot?.snapshot_code);
+        if (runCode || snapshotCode) {
+          setMessage(
+            `Đã chốt kỳ và tự động chạy phân bổ${runCode ? ` (${runCode})` : ""}${snapshotCode ? `, khóa snapshot ${snapshotCode}` : ""}.`
+          );
+        } else {
+          setMessage("Đã chốt kỳ giá thành.");
+        }
+      } else if (action === "open") {
+        setMessage("Đã mở kỳ giá thành.");
+      } else {
+        setMessage("Đã mở lại kỳ giá thành.");
+      }
+
+      await loadReferenceData();
+      await loadPhase5Data();
+      await loadCloseWorkflowData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Thao tác kỳ giá thành thất bại.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleCreateProductionLog(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -184,6 +279,7 @@ export default function CostingPhase5Page() {
       );
       setMessage("Đã ghi nhận nhật ký sản xuất.");
       await loadPhase5Data();
+      await loadCloseWorkflowData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ghi nhận nhật ký sản xuất thất bại.");
     } finally {
@@ -215,6 +311,7 @@ export default function CostingPhase5Page() {
       setPoolCode("");
       setPoolName("");
       await loadReferenceData();
+      await loadCloseWorkflowData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Tạo cost pool thất bại.");
     } finally {
@@ -245,6 +342,7 @@ export default function CostingPhase5Page() {
       );
       setMessage("Đã tạo allocation rule.");
       await loadReferenceData();
+      await loadCloseWorkflowData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Tạo allocation rule thất bại.");
     } finally {
@@ -272,6 +370,7 @@ export default function CostingPhase5Page() {
       setMessage("Đã chạy allocation run phase 5.");
       await loadPhase5Data();
       await loadReferenceData();
+      await loadCloseWorkflowData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Chạy allocation run thất bại.");
     } finally {
@@ -299,6 +398,7 @@ export default function CostingPhase5Page() {
       );
       setMessage("Đã tạo unit cost snapshot.");
       await loadPhase5Data();
+      await loadCloseWorkflowData();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Tạo unit cost snapshot thất bại.");
     } finally {
@@ -338,12 +438,17 @@ export default function CostingPhase5Page() {
     return <p className="text-sm text-slate-600">Bạn cần đăng nhập để thao tác phase 5.</p>;
   }
 
+  const currentSnapshot = (variancePreview?.current_snapshot as GenericRow | undefined) ?? null;
+  const previousSnapshot = (variancePreview?.previous_snapshot as GenericRow | undefined) ?? null;
+  const previousPeriod = (variancePreview?.previous_period as GenericRow | undefined) ?? null;
+  const variance = (variancePreview?.variance as GenericRow | undefined) ?? null;
+
   return (
     <div className="space-y-6">
       <section className="ta-card p-4">
         <h1 className="text-2xl font-semibold text-gray-900">Phase 5 - Sản xuất, Giá thành & Biên lợi nhuận</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Ghi nhận sản xuất, tạo cost pool/rule, chạy allocation và snapshot unit cost/margin.
+          Ghi nhận sản xuất, tạo cost pool/rule, chạy allocation, snapshot đơn giá/biên lợi nhuận và chốt kỳ giá thành.
         </p>
       </section>
 
@@ -359,6 +464,79 @@ export default function CostingPhase5Page() {
             </option>
           ))}
         </select>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <article className="ta-card space-y-3 p-4">
+          <h2 className="text-lg font-semibold text-gray-900">Wizard chốt kỳ giá thành</h2>
+          <p className="text-sm text-gray-600">
+            Trạng thái hiện tại: <span className="font-medium">{toText(selectedPeriod?.status) || "chưa chọn kỳ"}</span>
+          </p>
+          <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+            <p>Bút toán kho trong kỳ: {formatNumber(precloseChecklist?.inventory_entries_in_period, 0)}</p>
+            <p>Bút toán thiếu liên kết kỳ: {formatNumber(precloseChecklist?.entries_missing_period_link, 0)}</p>
+            <p>Phiếu kiểm kê trong kỳ: {formatNumber(precloseChecklist?.stock_take_records_in_period, 0)}</p>
+            <p>Phiếu kiểm kê chưa chốt: {formatNumber(precloseChecklist?.stock_take_pending, 0)}</p>
+            <p className="mt-1 font-medium">Sẵn sàng chốt kỳ: {toBool(precloseChecklist?.ready_to_close) ? "Đạt" : "Chưa đạt"}</p>
+          </div>
+          <textarea
+            className="ta-input min-h-20"
+            placeholder="Ghi chú thao tác kỳ (tuỳ chọn)"
+            value={workflowNote}
+            onChange={(event) => setWorkflowNote(event.target.value)}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="ta-button"
+              type="button"
+              disabled={busy || !selectedPeriodId || !(selectedPeriodStatus === "draft" || selectedPeriodStatus === "reopened")}
+              onClick={() => void handleCostPeriodAction("open")}
+            >
+              Mở kỳ
+            </button>
+            <button
+              className="ta-button-primary"
+              type="button"
+              disabled={busy || !selectedPeriodId || selectedPeriodStatus !== "open" || !toBool(precloseChecklist?.ready_to_close)}
+              onClick={() => void handleCostPeriodAction("close")}
+            >
+              Chốt kỳ (tự chạy allocation + snapshot)
+            </button>
+            <button
+              className="ta-button"
+              type="button"
+              disabled={busy || !selectedPeriodId || selectedPeriodStatus !== "closed"}
+              onClick={() => void handleCostPeriodAction("reopen")}
+            >
+              Mở lại kỳ
+            </button>
+          </div>
+        </article>
+
+        <article className="ta-card space-y-3 p-4">
+          <h2 className="text-lg font-semibold text-gray-900">Preview đơn giá & variance kỳ trước</h2>
+          <div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+            <p className="font-medium">Kỳ hiện tại</p>
+            <p>Snapshot: {toText(currentSnapshot?.snapshot_code) || "-"}</p>
+            <p>Đơn giá: {formatNumber(currentSnapshot?.unit_cost)} / m3</p>
+            <p>Tổng chi phí: {formatNumber(currentSnapshot?.total_cost)}</p>
+          </div>
+          <div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+            <p className="font-medium">Kỳ trước ({toText(previousPeriod?.period_code) || "chưa có"})</p>
+            <p>Snapshot: {toText(previousSnapshot?.snapshot_code) || "-"}</p>
+            <p>Đơn giá: {formatNumber(previousSnapshot?.unit_cost)} / m3</p>
+            <p>Tổng chi phí: {formatNumber(previousSnapshot?.total_cost)}</p>
+          </div>
+          <div className="rounded border border-gray-200 bg-white p-3 text-sm text-gray-700">
+            <p>
+              Chênh lệch đơn giá: <span className="font-medium">{formatNumber(variance?.amount)}</span>
+            </p>
+            <p>
+              Tỷ lệ chênh lệch: <span className="font-medium">{formatNumber(variance?.pct, 3)}%</span>
+            </p>
+            <p>Xu hướng: {toText(variance?.direction) || "n/a"}</p>
+          </div>
+        </article>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
@@ -431,7 +609,7 @@ export default function CostingPhase5Page() {
 
       <section className="grid gap-4 xl:grid-cols-3">
         <article className="ta-card space-y-3 p-4">
-          <h2 className="text-lg font-semibold text-gray-900">Run allocation</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Chạy phân bổ chi phí</h2>
           <button className="ta-button-primary" type="button" disabled={busy || !selectedPeriodId} onClick={() => void handleRunAllocation()}>
             Chạy allocation
           </button>
@@ -444,7 +622,7 @@ export default function CostingPhase5Page() {
         </article>
 
         <article className="ta-card space-y-3 p-4">
-          <h2 className="text-lg font-semibold text-gray-900">Unit cost snapshot</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Snapshot đơn giá</h2>
           <input className="ta-input" placeholder="Output volume (m3, tuỳ chọn)" value={unitCostVolume} onChange={(event) => setUnitCostVolume(event.target.value)} />
           <input className="ta-input" placeholder="Total cost (tuỳ chọn)" value={unitCostTotal} onChange={(event) => setUnitCostTotal(event.target.value)} />
           <button className="ta-button-primary" type="button" disabled={busy || !selectedPeriodId} onClick={() => void handleCreateUnitCostSnapshot()}>
@@ -453,7 +631,7 @@ export default function CostingPhase5Page() {
         </article>
 
         <article className="ta-card space-y-3 p-4">
-          <h2 className="text-lg font-semibold text-gray-900">Margin snapshot</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Snapshot biên lợi nhuận</h2>
           <input className="ta-input" placeholder="Sales order id (tuỳ chọn)" value={marginSalesOrderId} onChange={(event) => setMarginSalesOrderId(event.target.value)} />
           <input className="ta-input" placeholder="Revenue (tuỳ chọn)" value={marginRevenue} onChange={(event) => setMarginRevenue(event.target.value)} />
           <input className="ta-input" placeholder="Cost (tuỳ chọn)" value={marginCost} onChange={(event) => setMarginCost(event.target.value)} />
@@ -483,7 +661,7 @@ export default function CostingPhase5Page() {
             {unitCostSnapshots.slice(0, 8).map((item) => (
               <div key={toText(item.id)} className="rounded border border-gray-200 bg-gray-50 p-2">
                 <p className="font-medium">{toText(item.snapshot_code)}</p>
-                <p>Unit cost: {toText(item.unit_cost)} · Volume: {toText(item.output_volume_m3)}</p>
+                <p>Unit cost: {toText(item.unit_cost)} · Volume: {toText(item.output_volume_m3)} · Trạng thái: {toText(item.status)}</p>
               </div>
             ))}
             {unitCostSnapshots.length === 0 ? <p className="text-gray-500">Chưa có snapshot.</p> : null}
