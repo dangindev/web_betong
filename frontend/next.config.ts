@@ -32,8 +32,11 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/login", destination: "/dang-nhap", permanent: false },
+      { source: "/guide", destination: "/huong-dan-su-dung", permanent: false },
       { source: "/master/customers", destination: "/danh-muc/khach-hang", permanent: false },
       { source: "/master/customers/:itemId", destination: "/danh-muc/khach-hang/:itemId", permanent: false },
+      { source: "/master/business_units", destination: "/danh-muc/don-vi-kinh-doanh", permanent: false },
+      { source: "/master/business_units/:itemId", destination: "/danh-muc/don-vi-kinh-doanh/:itemId", permanent: false },
       { source: "/master/project-sites", destination: "/danh-muc/cong-trinh", permanent: false },
       { source: "/master/project-sites/:itemId", destination: "/danh-muc/cong-trinh/:itemId", permanent: false },
       { source: "/inventory", destination: "/kho-gia-thanh", permanent: false },
@@ -89,8 +92,11 @@ const nextConfig: NextConfig = {
       { source: "/healthz", destination: `${internalApiBaseUrl}/healthz` },
       { source: "/readyz", destination: `${internalApiBaseUrl}/readyz` },
       { source: "/dang-nhap", destination: "/login" },
+      { source: "/huong-dan-su-dung", destination: "/guide" },
       { source: "/danh-muc/khach-hang/:itemId", destination: "/master/customers/:itemId" },
       { source: "/danh-muc/khach-hang", destination: "/master/customers" },
+      { source: "/danh-muc/don-vi-kinh-doanh/:itemId", destination: "/master/business_units/:itemId" },
+      { source: "/danh-muc/don-vi-kinh-doanh", destination: "/master/business_units" },
       { source: "/danh-muc/cong-trinh/:itemId", destination: "/master/project-sites/:itemId" },
       { source: "/danh-muc/cong-trinh", destination: "/master/project-sites" },
       { source: "/kho-gia-thanh", destination: "/inventory" },

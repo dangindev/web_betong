@@ -2,6 +2,7 @@
 
 import {
   BookOpen,
+  BookOpenText,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -53,12 +54,14 @@ type NavGroup = {
 
 const navGroups: NavGroup[] = [
   { id: "overview", href: "/", label: "Tổng quan", icon: LayoutDashboard },
+  { id: "guide", href: "/huong-dan-su-dung", label: "Hướng dẫn sử dụng", icon: BookOpenText },
   {
     id: "master",
     label: "Danh mục nền",
     icon: Database,
     children: [
       { id: "master-customers", href: "/danh-muc/khach-hang", label: "Khách hàng" },
+      { id: "master-business-units", href: "/danh-muc/don-vi-kinh-doanh", label: "Đơn vị kinh doanh" },
       { id: "master-sites", href: "/danh-muc/cong-trinh", label: "Công trình" }
     ]
   },

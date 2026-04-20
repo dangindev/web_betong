@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -9,12 +9,14 @@ from app.core.auth import hash_password
 from app.domain.models import (
     BusinessUnit,
     ConcreteProduct,
+    DailyKpiSnapshot,
     CostCenter,
     CostObject,
     CostPeriod,
     Customer,
     InventoryLedgerEntry,
     Material,
+    DispatchOrder,
     Organization,
     Permission,
     Plant,
@@ -23,6 +25,7 @@ from app.domain.models import (
     PriceRule,
     ProjectSite,
     Pump,
+    ReconciliationRecord,
     Role,
     RolePermission,
     SalesOrder,
@@ -786,6 +789,141 @@ def _seed_phase4_inventory_costing(
             db.add(entry)
 
 
+def _seed_phase5_dispatch_analytics(db, org_id: str, plants: list[Plant]) -> None:
+    pour_requests = db.execute(
+        select(PourRequest)
+        .where(PourRequest.organization_id == org_id)
+        .order_by(PourRequest.request_no.asc())
+    ).scalars().all()
+
+    if not pour_requests:
+        return
+
+    for idx, request in enumerate(pour_requests, start=1):
+        dispatch = db.execute(
+            select(DispatchOrder).where(
+                DispatchOrder.organization_id == org_id,
+                DispatchOrder.pour_request_id == request.id,
+            )
+        ).scalar_one_or_none()
+
+        target_plant_id = request.assigned_plant_id or plants[(idx - 1) % len(plants)].id
+        planned_volume = float(request.requested_volume_m3 or 0)
+        planned_trip_count = max(1, round(planned_volume / 6.5))
+        actual_volume = round(planned_volume * (0.96 + (idx % 3) * 0.02), 3)
+        actual_trip_count = max(1, planned_trip_count + (1 if idx % 2 == 0 else 0) - (1 if idx % 3 == 0 else 0))
+
+        if dispatch is None:
+            dispatch = DispatchOrder(
+                organization_id=org_id,
+                pour_request_id=request.id,
+                sales_order_id=request.sales_order_id,
+                customer_id=request.customer_id,
+                site_id=request.site_id,
+                assigned_plant_id=target_plant_id,
+                target_truck_rhythm_minutes=15,
+                approval_status="approved",
+                status="confirmed",
+                dispatch_lock=False,
+            )
+        else:
+            dispatch.sales_order_id = request.sales_order_id
+            dispatch.customer_id = request.customer_id
+            dispatch.site_id = request.site_id
+            dispatch.assigned_plant_id = target_plant_id
+            dispatch.target_truck_rhythm_minutes = 15
+            dispatch.approval_status = "approved"
+            dispatch.status = "confirmed"
+            dispatch.dispatch_lock = False
+
+        db.add(dispatch)
+        db.flush()
+
+        variance_volume = round(actual_volume - planned_volume, 3)
+        variance_trip = actual_trip_count - planned_trip_count
+        reason_code = "normal" if abs(variance_volume) <= 0.6 else "traffic"
+
+        reconciliation = db.execute(
+            select(ReconciliationRecord).where(
+                ReconciliationRecord.organization_id == org_id,
+                ReconciliationRecord.pour_request_id == request.id,
+            )
+        ).scalar_one_or_none()
+
+        if reconciliation is None:
+            reconciliation = ReconciliationRecord(
+                organization_id=org_id,
+                pour_request_id=request.id,
+                dispatch_order_id=dispatch.id,
+                planned_volume_m3=planned_volume,
+                actual_volume_m3=actual_volume,
+                planned_trip_count=planned_trip_count,
+                actual_trip_count=actual_trip_count,
+                variance_volume_m3=variance_volume,
+                variance_trip_count=variance_trip,
+                reason_code=reason_code,
+                note="Seed dữ liệu đối soát mô phỏng ca sản xuất",
+                status="closed",
+            )
+        else:
+            reconciliation.dispatch_order_id = dispatch.id
+            reconciliation.planned_volume_m3 = planned_volume
+            reconciliation.actual_volume_m3 = actual_volume
+            reconciliation.planned_trip_count = planned_trip_count
+            reconciliation.actual_trip_count = actual_trip_count
+            reconciliation.variance_volume_m3 = variance_volume
+            reconciliation.variance_trip_count = variance_trip
+            reconciliation.reason_code = reason_code
+            reconciliation.note = "Seed dữ liệu đối soát mô phỏng ca sản xuất"
+            reconciliation.status = "closed"
+
+        db.add(reconciliation)
+
+    today = date.today()
+    for day_offset in range(7):
+        snapshot_date = today - timedelta(days=day_offset)
+        for plant_index, plant in enumerate(plants):
+            kpi = db.execute(
+                select(DailyKpiSnapshot).where(
+                    DailyKpiSnapshot.organization_id == org_id,
+                    DailyKpiSnapshot.plant_id == plant.id,
+                    DailyKpiSnapshot.snapshot_date == snapshot_date,
+                )
+            ).scalar_one_or_none()
+
+            on_time_pct = max(72.0, round(92 - day_offset * 1.4 + plant_index * 2.2, 2))
+            avg_cycle_minutes = round(68 + day_offset * 1.8 + plant_index * 2.5, 2)
+            vehicle_utilization_pct = round(65 + (day_offset % 4) * 4 + plant_index * 3, 2)
+            pump_utilization_pct = round(52 + (day_offset % 5) * 3 + plant_index * 2.5, 2)
+            empty_km = round(17 + day_offset * 1.3 + plant_index * 1.7, 3)
+            trips_count = int(34 + day_offset * 3 + plant_index * 5)
+            volume_m3 = round(trips_count * 6.1, 3)
+
+            if kpi is None:
+                kpi = DailyKpiSnapshot(
+                    organization_id=org_id,
+                    snapshot_date=snapshot_date,
+                    plant_id=plant.id,
+                    on_time_pct=on_time_pct,
+                    avg_cycle_minutes=avg_cycle_minutes,
+                    vehicle_utilization_pct=vehicle_utilization_pct,
+                    pump_utilization_pct=pump_utilization_pct,
+                    empty_km=empty_km,
+                    trips_count=trips_count,
+                    volume_m3=volume_m3,
+                )
+            else:
+                kpi.on_time_pct = on_time_pct
+                kpi.avg_cycle_minutes = avg_cycle_minutes
+                kpi.vehicle_utilization_pct = vehicle_utilization_pct
+                kpi.pump_utilization_pct = pump_utilization_pct
+                kpi.empty_km = empty_km
+                kpi.trips_count = trips_count
+                kpi.volume_m3 = volume_m3
+
+            db.add(kpi)
+
+
 def _seed_settings(db, org_id: str) -> None:
     existing = db.execute(
         select(SystemSetting).where(
@@ -823,6 +961,7 @@ def run() -> None:
         _seed_real_sales_master(db, org.id, plants, products)
         _seed_phase2_pricing(db, org.id)
         _seed_phase4_inventory_costing(db, org.id, bu.id, plants, materials)
+        _seed_phase5_dispatch_analytics(db, org.id, plants)
         _seed_settings(db, org.id)
 
         db.commit()
