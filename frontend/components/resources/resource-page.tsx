@@ -1,11 +1,12 @@
 "use client";
 
 import { Download, Eye, EyeOff, Pencil, RefreshCcw, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { apiCreateResource, apiDeleteResource, apiListResource, apiUpdateResource } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/store/auth-store";
-
 import { Button } from "../ui/button";
 
 type ResourcePageProps = {
@@ -103,6 +104,12 @@ const FIELD_LABELS: Record<string, string> = {
   dispatch_order_id: "Lệnh điều phối",
   trip_id: "Chuyến",
   pump_id: "Cần bơm",
+  price_book_id: "Bảng giá",
+  rule_type: "Loại quy tắc",
+  rule_name: "Tên quy tắc",
+  priority: "Độ ưu tiên",
+  order_no: "Mã đơn hàng",
+  request_no: "Mã yêu cầu đổ",
   created_at: "Ngày tạo",
   updated_at: "Ngày cập nhật",
   opened_at: "Thời điểm mở",
@@ -121,7 +128,11 @@ const FIELD_LABELS: Record<string, string> = {
   quantity_delta: "Lượng điều chỉnh",
   requested_volume_m3: "Khối lượng yêu cầu (m³)",
   actual_volume_m3: "Khối lượng thực tế (m³)",
+  planned_volume_m3: "Khối lượng kế hoạch (m³)",
+  variance_volume_m3: "Chênh lệch khối lượng (m³)",
   actual_trip_count: "Số chuyến thực tế",
+  planned_trip_count: "Số chuyến kế hoạch",
+  variance_trip_count: "Chênh lệch số chuyến",
   value_json: "Giá trị cấu hình",
   condition_json: "Điều kiện",
   formula_json: "Công thức",
@@ -135,6 +146,8 @@ const FIELD_LABELS: Record<string, string> = {
   payment_terms_days: "Số ngày thanh toán",
   credit_limit: "Hạn mức tín dụng",
   tax_code: "Mã số thuế",
+  approval_status: "Trạng thái phê duyệt",
+  reason_code: "Mã lý do",
   is_system: "Vai trò hệ thống",
   is_primary: "Vai trò chính",
   password: "Mật khẩu"
@@ -305,6 +318,12 @@ function parseDraftValue(raw: string, field: string, fieldType: FieldType): unkn
     try {
       return JSON.parse(trimmed);
     } catch {
+      if (field === "formula_json") {
+        return { mode: "expression", expression: trimmed };
+      }
+      if (field === "condition_json") {
+        return { expression: trimmed };
+      }
       throw new Error(`Trường ${formatFieldLabel(field)} phải là JSON hợp lệ.`);
     }
   }
@@ -330,6 +349,7 @@ function toDraftValue(value: unknown, field: string, fieldType: FieldType): stri
 
 export function ResourcePage({ resource, title }: ResourcePageProps) {
   const { accessToken } = useAuthStore();
+  const pathname = usePathname();
 
   const [rows, setRows] = useState<GenericRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -447,6 +467,7 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
     const start = safePageIndex * pageSize;
     return filteredRows.slice(start, start + pageSize);
   }, [filteredRows, pageSize, safePageIndex]);
+
 
   async function reload() {
     if (!accessToken) return;
@@ -606,6 +627,11 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
     URL.revokeObjectURL(url);
   }
 
+  function buildDetailHref(itemId: string): string {
+    const normalizedPath = pathname !== "/" && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+    return `${normalizedPath}/${encodeURIComponent(itemId)}`;
+  }
+
   function toggleColumn(column: string) {
     setVisibleColumns((current) => {
       if (current.includes(column)) {
@@ -688,31 +714,41 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
     const id = `field-${resource}-${field}`;
 
     if (fieldType === "json") {
+      const isRuleExpressionField = field === "formula_json" || field === "condition_json";
+      const placeholder = isRuleExpressionField
+        ? `${label} (nhập tự do hoặc JSON)`
+        : `${label} (dạng JSON)`;
+
       return (
-        <div key={field} className="space-y-1 md:col-span-2">
-          <label htmlFor={id} className="text-xs font-semibold text-slate-600">
+        <div key={field} className="ta-field md:col-span-2">
+          <label htmlFor={id} className="ta-label">
             {label}
           </label>
           <textarea
             id={id}
-            className="h-24 w-full rounded border border-slate-300 px-3 py-2 text-sm font-mono"
-            placeholder={`${label} (dạng JSON)`}
+            className={`ta-textarea ${isRuleExpressionField ? "min-h-[96px]" : "min-h-[132px] font-mono"}`}
+            placeholder={placeholder}
             value={value}
             onChange={(event) => onChange(field, event.target.value)}
           />
+          {isRuleExpressionField ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Ví dụ: <code>distance_km &gt; 15</code> hoặc nhập JSON nâng cao nếu cần.
+            </p>
+          ) : null}
         </div>
       );
     }
 
     if (fieldType === "boolean") {
       return (
-        <div key={field} className="space-y-1">
-          <label htmlFor={id} className="text-xs font-semibold text-slate-600">
+        <div key={field} className="ta-field">
+          <label htmlFor={id} className="ta-label">
             {label}
           </label>
           <select
             id={id}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="ta-select"
             value={value}
             onChange={(event) => onChange(field, event.target.value)}
           >
@@ -726,13 +762,13 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
 
     if (useReferenceSelect) {
       return (
-        <div key={field} className="space-y-1">
-          <label htmlFor={id} className="text-xs font-semibold text-slate-600">
+        <div key={field} className="ta-field">
+          <label htmlFor={id} className="ta-label">
             {label}
           </label>
           <select
             id={id}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="ta-select"
             value={value}
             onChange={(event) => onChange(field, event.target.value)}
           >
@@ -754,13 +790,13 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
     const inputType = fieldType === "number" ? "number" : fieldType === "datetime" ? "datetime-local" : field === "password" ? "password" : "text";
 
     return (
-      <div key={field} className="space-y-1">
-        <label htmlFor={id} className="text-xs font-semibold text-slate-600">
+      <div key={field} className="ta-field">
+        <label htmlFor={id} className="ta-label">
           {label}
         </label>
         <input
           id={id}
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           type={inputType}
           value={value}
           onChange={(event) => onChange(field, event.target.value)}
@@ -872,7 +908,7 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
         </div>
       </div>
 
-      <section className="space-y-3 rounded border border-slate-200 bg-white p-4">
+      <section className="ta-card space-y-3 p-4">
         <h3 className="text-sm font-semibold text-slate-800">Biểu mẫu tạo mới</h3>
         <p className="text-xs text-slate-500">
           Thao tác trực tiếp theo từng trường dữ liệu. Không cần nhập JSON thô.
@@ -892,7 +928,7 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
       </section>
 
       {editingId ? (
-        <section className="space-y-3 rounded border border-indigo-200 bg-indigo-50/40 p-4">
+        <section className="ta-card space-y-3 border-indigo-200 bg-indigo-50/40 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-indigo-900">Đang chỉnh sửa bản ghi: {shortId(editingId)}</h3>
             <Button variant="secondary" onClick={() => setEditingId(null)}>
@@ -914,10 +950,10 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
         </section>
       ) : null}
 
-      <section className="rounded border border-slate-200 bg-white p-3">
+      <section className="ta-card p-3">
         <div className="grid gap-3 md:grid-cols-4">
           <input
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="ta-input"
             placeholder="Tìm kiếm toàn bảng..."
             value={searchKeyword}
             onChange={(event) => {
@@ -927,7 +963,7 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
           />
 
           <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="ta-select"
             value={sortBy}
             onChange={(event) => setSortBy(event.target.value)}
           >
@@ -939,7 +975,7 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
           </select>
 
           <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="ta-select"
             value={pageSize}
             onChange={(event) => {
               setPageSize(Number(event.target.value));
@@ -974,67 +1010,93 @@ export function ResourcePage({ resource, title }: ResourcePageProps) {
         ) : null}
       </section>
 
+
       {message ? <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div> : null}
       {error ? <div className="rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div> : null}
 
-      <section className="overflow-auto rounded border border-slate-200 bg-white">
+      <section className="ta-card overflow-hidden">
         {loading ? (
           <div className="p-4 text-sm text-slate-500">Đang tải dữ liệu...</div>
         ) : rows.length === 0 ? (
           <div className="p-4 text-sm text-slate-500">Chưa có dữ liệu.</div>
         ) : (
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-100">
-              <tr>
-                <th className="border-b border-slate-200 px-3 py-2 text-left font-semibold">#</th>
-                {visibleColumnList.map((column) => (
-                  <th key={column} className="border-b border-slate-200 px-3 py-2 text-left font-semibold">
-                    <button className="inline-flex items-center gap-1" onClick={() => handleSort(column)} type="button">
-                      {formatFieldLabel(column)}
-                      {sortBy === column ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
-                    </button>
-                  </th>
-                ))}
-                <th className="border-b border-slate-200 px-3 py-2 text-left font-semibold">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedRows.map((row, idx) => {
-                const itemId = serializeRaw(row.id).trim();
+          <div className="max-h-[68vh] overflow-auto rounded-xl border border-slate-200">
+            <table className="min-w-[980px] w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-100">
+                <tr>
+                  <th className="border-b border-slate-200 px-3 py-2 text-left font-semibold">#</th>
+                  {visibleColumnList.map((column) => (
+                    <th key={column} className="border-b border-slate-200 px-3 py-2 text-left font-semibold">
+                      <button className="inline-flex items-center gap-1" onClick={() => handleSort(column)} type="button">
+                        {formatFieldLabel(column)}
+                        {sortBy === column ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
+                      </button>
+                    </th>
+                  ))}
+                  <th className="border-b border-slate-200 px-3 py-2 text-left font-semibold">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedRows.map((row, idx) => {
+                  const itemId = serializeRaw(row.id).trim();
 
-                return (
-                  <tr key={`${itemId || "row"}-${idx}`} className="odd:bg-white even:bg-slate-50">
-                    <td className="border-b border-slate-100 px-3 py-2 align-top">{safePageIndex * pageSize + idx + 1}</td>
+                  return (
+                    <tr
+                      key={`${itemId || "row"}-${idx}`}
+                      className="odd:bg-white even:bg-slate-50 hover:bg-brand-25"
+                    >
+                      <td className="border-b border-slate-100 px-3 py-2 align-top">{safePageIndex * pageSize + idx + 1}</td>
 
-                    {visibleColumnList.map((column) => (
-                      <td key={column} className="border-b border-slate-100 px-3 py-2 align-top">
-                        {renderCellValue(column, row[column])}
+                      {visibleColumnList.map((column) => (
+                        <td key={column} className="max-w-[260px] border-b border-slate-100 px-3 py-2 align-top">
+                          {renderCellValue(column, row[column])}
+                        </td>
+                      ))}
+
+                      <td className="border-b border-slate-100 px-3 py-2 align-top">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {itemId ? (
+                            <>
+                              <Button asChild size="sm" variant="neutral">
+                                <Link href={buildDetailHref(itemId)} onClick={(event) => event.stopPropagation()}>
+                                  <Eye className="mr-1 h-4 w-4" />
+                                  Chi tiết
+                                </Link>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openEditor(row);
+                                }}
+                              >
+                                <Pencil className="mr-1 h-4 w-4" />
+                                Sửa
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDelete(itemId);
+                                }}
+                              >
+                                <Trash2 className="mr-1 h-4 w-4" />
+                                Xóa
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="text-xs text-slate-400">Không áp dụng</span>
+                          )}
+                        </div>
                       </td>
-                    ))}
-
-                    <td className="border-b border-slate-100 px-3 py-2 align-top">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {itemId ? (
-                          <>
-                            <Button variant="secondary" onClick={() => openEditor(row)}>
-                              <Pencil className="mr-1 h-4 w-4" />
-                              Sửa
-                            </Button>
-                            <Button variant="secondary" onClick={() => void handleDelete(itemId)}>
-                              <Trash2 className="mr-1 h-4 w-4" />
-                              Xóa
-                            </Button>
-                          </>
-                        ) : (
-                          <span className="text-xs text-slate-400">Không áp dụng</span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 

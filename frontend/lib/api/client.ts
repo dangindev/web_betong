@@ -6,14 +6,8 @@ function getApiBaseUrl(): string {
     if (typeof window !== "undefined") {
       try {
         const parsed = new URL(envBaseUrl);
-        const currentHost = window.location.hostname;
-        if (
-          (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
-          currentHost !== "localhost" &&
-          currentHost !== "127.0.0.1"
-        ) {
-          parsed.hostname = currentHost;
-          return parsed.toString().replace(/\/$/, "");
+        if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+          return window.location.origin.replace(/\/$/, "");
         }
       } catch {
         // fallback to env value below when URL parsing fails
@@ -23,10 +17,10 @@ function getApiBaseUrl(): string {
   }
 
   if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:18000`;
+    return window.location.origin.replace(/\/$/, "");
   }
 
-  return "http://localhost:18000";
+  return "http://localhost:13000";
 }
 
 const API_BASE_URL = getApiBaseUrl();
@@ -313,6 +307,11 @@ export async function apiListResource<T>(
   return parseResponse<{ items: T[]; total: number }>(response);
 }
 
+export async function apiGetResource<T>(resource: string, itemId: string, accessToken: string): Promise<T> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/resources/${resource}/${itemId}`, accessToken);
+  return parseResponse<T>(response);
+}
+
 export async function apiCreateResource<T>(
   resource: string,
   payload: Record<string, unknown>,
@@ -492,6 +491,7 @@ export type DispatchScheduleRunPayload = {
   organization_id: string;
   run_date?: string;
   dispatch_order_ids?: string[];
+  scheduler_mode?: "v1" | "v2";
 };
 
 export type DispatchEventPayload = {
@@ -549,6 +549,31 @@ export async function apiGetScheduleRunConflicts(
 ): Promise<Record<string, unknown>> {
   const response = await fetchWithAccessTokenRetry(
     `${API_BASE_URL}/api/v1/dispatch/schedule-runs/${scheduleRunId}/conflicts`,
+    accessToken
+  );
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+
+export async function apiCompareSchedulerKpis(
+  organizationId: string,
+  accessToken: string,
+  options?: {
+    run_id_v1?: string;
+    run_id_v2?: string;
+  }
+): Promise<Record<string, unknown>> {
+  const query = new URLSearchParams({ organization_id: organizationId });
+  if (options?.run_id_v1) {
+    query.set("run_id_v1", options.run_id_v1);
+  }
+  if (options?.run_id_v2) {
+    query.set("run_id_v2", options.run_id_v2);
+  }
+
+  const response = await fetchWithAccessTokenRetry(
+    `${API_BASE_URL}/api/v1/dispatch/scheduler-kpi-compare?${query.toString()}`,
     accessToken
   );
 
@@ -918,6 +943,20 @@ export type Phase5MarginSnapshotPayload = {
   note?: string;
 };
 
+export type Phase5BatchTicketComponentPayload = {
+  material_id: string;
+  target_qty: number;
+  actual_qty: number;
+};
+
+export type Phase5BatchTicketActualsPayload = {
+  organization_id: string;
+  period_id: string;
+  batch_ticket_id: string;
+  components: Phase5BatchTicketComponentPayload[];
+  note?: string;
+};
+
 export async function apiCreateProductionLog(
   payload: Phase5ProductionLogPayload,
   accessToken: string
@@ -950,6 +989,37 @@ export async function apiListProductionLogs(
   );
 
   return parseResponse<{ items: Array<Record<string, unknown>> }>(response);
+}
+
+export async function apiRecordBatchTicketActuals(
+  payload: Phase5BatchTicketActualsPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/batch-tickets/actuals`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiBatchTicketVarianceSummary(
+  organizationId: string,
+  periodId: string,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/batch-ticket-variance", {
+      organization_id: organizationId,
+      period_id: periodId
+    }),
+    accessToken
+  );
+
+  return parseResponse<Record<string, unknown>>(response);
 }
 
 export async function apiCreateCostPool(

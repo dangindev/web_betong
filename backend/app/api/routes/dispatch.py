@@ -15,6 +15,7 @@ from app.application.dispatch import (
     apply_offline_sync_batch,
     apply_pump_event,
     apply_trip_event,
+    compare_scheduler_kpis,
     create_or_update_dispatch_order,
     generate_daily_kpi,
     get_schedule_conflicts,
@@ -46,6 +47,7 @@ class ScheduleRunRequest(BaseModel):
     organization_id: str
     run_date: date | None = None
     dispatch_order_ids: list[str] | None = None
+    scheduler_mode: Literal["v1", "v2"] = "v1"
 
 
 class ManualOverrideRequest(BaseModel):
@@ -170,6 +172,27 @@ def create_schedule_run(
             actor_user_id=current_user.id,
             run_date=payload.run_date,
             dispatch_order_ids=payload.dispatch_order_ids,
+            scheduler_mode=payload.scheduler_mode,
+        )
+    except ValueError as exc:
+        _raise_for_service_error(exc)
+
+
+@router.get("/scheduler-kpi-compare")
+def scheduler_kpi_compare(
+    organization_id: str = Query(...),
+    run_id_v1: str | None = Query(default=None),
+    run_id_v2: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    _ensure_dispatch_permission(db, current_user, "read")
+    try:
+        return compare_scheduler_kpis(
+            db=db,
+            organization_id=organization_id,
+            run_id_v1=run_id_v1,
+            run_id_v2=run_id_v2,
         )
     except ValueError as exc:
         _raise_for_service_error(exc)

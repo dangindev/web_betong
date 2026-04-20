@@ -5,15 +5,16 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from app.application.registry import serialize_instance
+from app.application.registry import serialize_instance, serialize_value
 from app.domain.models import (
     AllocationResult,
     AllocationRule,
     AllocationRun,
     BatchTicket,
+    BatchTicketComponent,
     CostObject,
     CostPeriod,
     CostPool,
@@ -27,6 +28,59 @@ from app.domain.models import (
 
 MONEY_PRECISION = Decimal("0.01")
 QTY_PRECISION = Decimal("0.001")
+COST_BREAKDOWN_KEYS = (
+    "direct_material",
+    "direct_labor",
+    "utilities",
+    "maintenance",
+    "depreciation",
+    "overhead_allocation",
+)
+
+
+def _empty_cost_breakdown() -> dict[str, Decimal]:
+    return {key: Decimal("0") for key in COST_BREAKDOWN_KEYS}
+
+
+def _categorize_cost_type(cost_type: str | None) -> str:
+    normalized = str(cost_type or "").strip().lower()
+    if "material" in normalized or normalized in {"dm", "direct_mat"}:
+        return "direct_material"
+    if "labor" in normalized or "nhan_cong" in normalized or normalized in {"dl", "direct_labour", "direct_labor"}:
+        return "direct_labor"
+    if "utility" in normalized or "dien" in normalized or "electric" in normalized:
+        return "utilities"
+    if "maint" in normalized or "bao_tri" in normalized:
+        return "maintenance"
+    if "depreci" in normalized or "khau_hao" in normalized:
+        return "depreciation"
+    return "overhead_allocation"
+
+
+def _period_datetime_range(period: CostPeriod) -> tuple[datetime, datetime]:
+    start_date, end_date = _period_range(period)
+    start_dt = datetime.combine(start_date, time.min).replace(tzinfo=timezone.utc)
+    end_dt = datetime.combine(end_date, time.max).replace(tzinfo=timezone.utc)
+    return start_dt, end_dt
+
+
+def _load_cost_breakdown_for_run(db: Session, allocation_run_id: str) -> dict[str, Decimal]:
+    breakdown = _empty_cost_breakdown()
+    rows = (
+        db.execute(
+            select(AllocationResult.allocated_amount, CostPool.cost_type)
+            .select_from(AllocationResult)
+            .join(CostPool, AllocationResult.pool_id == CostPool.id, isouter=True)
+            .where(AllocationResult.allocation_run_id == allocation_run_id)
+        )
+        .all()
+    )
+
+    for allocated_amount, cost_type in rows:
+        category = _categorize_cost_type(cost_type)
+        breakdown[category] = _quantize_money(breakdown[category] + _as_decimal(allocated_amount))
+
+    return breakdown
 
 
 def _utcnow() -> datetime:
@@ -215,6 +269,211 @@ def list_production_logs(
     query = query.order_by(ProductionLog.shift_date.desc(), ProductionLog.created_at.desc()).offset(skip).limit(limit)
     items = db.execute(query).scalars().all()
     return [serialize_instance(item) for item in items]
+
+
+def record_batch_ticket_actuals(
+    db: Session,
+    *,
+    organization_id: str,
+    period_id: str,
+    batch_ticket_id: str,
+    components: list[dict[str, Any]],
+    note: str | None,
+) -> dict[str, Any]:
+    period = _get_cost_period(db, organization_id, period_id)
+    ticket = db.get(BatchTicket, batch_ticket_id)
+    if not ticket or str(ticket.organization_id) != str(organization_id):
+        raise ValueError("Batch ticket không tồn tại")
+
+    start_dt, end_dt = _period_datetime_range(period)
+    completed_at = ticket.load_completed_at
+    if completed_at and completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=timezone.utc)
+
+    if not completed_at or completed_at < start_dt or completed_at > end_dt:
+        raise ValueError("Batch ticket không thuộc kỳ giá thành đã chọn")
+
+    if not components:
+        raise ValueError("Danh sách thành phần mix design không được để trống")
+
+    updated_components: list[BatchTicketComponent] = []
+    total_target_qty = Decimal("0")
+    total_actual_qty = Decimal("0")
+
+    for payload in components:
+        material_id = str(payload.get("material_id") or "").strip()
+        if not material_id:
+            raise ValueError("Thiếu material_id trong thành phần mix design")
+
+        target_qty = _quantize_qty(_as_decimal(payload.get("target_qty")))
+        actual_qty = _quantize_qty(_as_decimal(payload.get("actual_qty")))
+        if target_qty < 0 or actual_qty < 0:
+            raise ValueError("target_qty và actual_qty phải lớn hơn hoặc bằng 0")
+
+        component = (
+            db.execute(
+                select(BatchTicketComponent)
+                .where(BatchTicketComponent.batch_ticket_id == batch_ticket_id)
+                .where(BatchTicketComponent.material_id == material_id)
+                .order_by(BatchTicketComponent.created_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+
+        if component is None:
+            component = BatchTicketComponent(
+                organization_id=organization_id,
+                batch_ticket_id=batch_ticket_id,
+                material_id=material_id,
+            )
+
+        component.target_qty = float(target_qty)
+        component.actual_qty = float(actual_qty)
+        db.add(component)
+        db.flush()
+
+        updated_components.append(component)
+        total_target_qty += target_qty
+        total_actual_qty += actual_qty
+
+    total_target_qty = _quantize_qty(total_target_qty)
+    total_actual_qty = _quantize_qty(total_actual_qty)
+    total_variance_qty = _quantize_qty(total_actual_qty - total_target_qty)
+
+    variance_pct: float | None = None
+    if total_target_qty > 0:
+        variance_pct = float(_quantize_qty((total_variance_qty / total_target_qty) * Decimal("100")))
+
+    db.commit()
+    db.refresh(ticket)
+    for component in updated_components:
+        db.refresh(component)
+
+    return {
+        "batch_ticket": serialize_instance(ticket),
+        "components": [serialize_instance(component) for component in updated_components],
+        "summary": {
+            "period_id": period.id,
+            "period_code": period.period_code,
+            "batch_ticket_id": batch_ticket_id,
+            "note": note,
+            "total_target_qty": float(total_target_qty),
+            "total_actual_qty": float(total_actual_qty),
+            "total_variance_qty": float(total_variance_qty),
+            "variance_pct": variance_pct,
+        },
+    }
+
+
+def summarize_batch_ticket_variance(
+    db: Session,
+    *,
+    organization_id: str,
+    period_id: str,
+) -> dict[str, Any]:
+    period = _get_cost_period(db, organization_id, period_id)
+    start_dt, end_dt = _period_datetime_range(period)
+
+    tickets = (
+        db.execute(
+            select(BatchTicket)
+            .where(BatchTicket.organization_id == organization_id)
+            .where(BatchTicket.load_completed_at >= start_dt)
+            .where(BatchTicket.load_completed_at <= end_dt)
+            .order_by(BatchTicket.load_completed_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+    ticket_ids = [str(item.id) for item in tickets]
+    if not ticket_ids:
+        return {
+            "period": serialize_instance(period),
+            "summary": {
+                "ticket_count": 0,
+                "component_count": 0,
+                "total_target_qty": 0.0,
+                "total_actual_qty": 0.0,
+                "total_variance_qty": 0.0,
+                "variance_pct": None,
+            },
+            "items": [],
+        }
+
+    components = (
+        db.execute(
+            select(BatchTicketComponent).where(BatchTicketComponent.batch_ticket_id.in_(ticket_ids))
+        )
+        .scalars()
+        .all()
+    )
+
+    grouped: dict[str, dict[str, Decimal | str]] = {}
+    total_target_qty = Decimal("0")
+    total_actual_qty = Decimal("0")
+
+    for item in components:
+        material_id = str(item.material_id or "khong-xac-dinh")
+        target_qty = _quantize_qty(_as_decimal(item.target_qty))
+        actual_qty = _quantize_qty(_as_decimal(item.actual_qty))
+
+        if material_id not in grouped:
+            grouped[material_id] = {
+                "material_id": material_id,
+                "target_qty": Decimal("0"),
+                "actual_qty": Decimal("0"),
+            }
+
+        grouped[material_id]["target_qty"] = _quantize_qty(_as_decimal(grouped[material_id]["target_qty"]) + target_qty)
+        grouped[material_id]["actual_qty"] = _quantize_qty(_as_decimal(grouped[material_id]["actual_qty"]) + actual_qty)
+
+        total_target_qty += target_qty
+        total_actual_qty += actual_qty
+
+    total_target_qty = _quantize_qty(total_target_qty)
+    total_actual_qty = _quantize_qty(total_actual_qty)
+    total_variance_qty = _quantize_qty(total_actual_qty - total_target_qty)
+
+    total_variance_pct: float | None = None
+    if total_target_qty > 0:
+        total_variance_pct = float(_quantize_qty((total_variance_qty / total_target_qty) * Decimal("100")))
+
+    items: list[dict[str, Any]] = []
+    for value in grouped.values():
+        target_qty = _quantize_qty(_as_decimal(value["target_qty"]))
+        actual_qty = _quantize_qty(_as_decimal(value["actual_qty"]))
+        variance_qty = _quantize_qty(actual_qty - target_qty)
+
+        variance_pct: float | None = None
+        if target_qty > 0:
+            variance_pct = float(_quantize_qty((variance_qty / target_qty) * Decimal("100")))
+
+        items.append(
+            {
+                "material_id": value["material_id"],
+                "target_qty": float(target_qty),
+                "actual_qty": float(actual_qty),
+                "variance_qty": float(variance_qty),
+                "variance_pct": variance_pct,
+            }
+        )
+
+    items.sort(key=lambda item: abs(float(item["variance_qty"])), reverse=True)
+
+    return {
+        "period": serialize_instance(period),
+        "summary": {
+            "ticket_count": len(ticket_ids),
+            "component_count": len(components),
+            "total_target_qty": float(total_target_qty),
+            "total_actual_qty": float(total_actual_qty),
+            "total_variance_qty": float(total_variance_qty),
+            "variance_pct": total_variance_pct,
+        },
+        "items": items,
+    }
 
 
 def create_cost_pool(
@@ -527,6 +786,25 @@ def create_unit_cost_snapshot(
     total_cost_decimal = _quantize_money(total_cost_decimal)
     unit_cost = _quantize_money(total_cost_decimal / volume_decimal) if volume_decimal > 0 else Decimal("0")
 
+    cost_breakdown = _empty_cost_breakdown()
+    if selected_run:
+        cost_breakdown = _load_cost_breakdown_for_run(db, selected_run.id)
+        allocated_total = _quantize_money(sum(cost_breakdown.values(), Decimal("0")))
+        remainder = _quantize_money(total_cost_decimal - allocated_total)
+        if remainder != 0:
+            cost_breakdown["overhead_allocation"] = _quantize_money(cost_breakdown["overhead_allocation"] + remainder)
+    elif total_cost_decimal > 0:
+        cost_breakdown["overhead_allocation"] = total_cost_decimal
+
+    cost_breakdown_json = {
+        key: float(_quantize_money(value))
+        for key, value in cost_breakdown.items()
+    }
+    cost_breakdown_pct_json = {
+        key: float(_quantize_qty((value / total_cost_decimal) * Decimal("100"))) if total_cost_decimal > 0 else 0.0
+        for key, value in cost_breakdown.items()
+    }
+
     snapshot = UnitCostSnapshot(
         organization_id=organization_id,
         period_id=period_id,
@@ -540,6 +818,8 @@ def create_unit_cost_snapshot(
             "volume_m3": float(volume_decimal),
             "total_cost": float(total_cost_decimal),
             "source_run_id": selected_run.id if selected_run else None,
+            "cost_breakdown": cost_breakdown_json,
+            "cost_breakdown_pct": cost_breakdown_pct_json,
         },
         status="draft",
         note=note,
@@ -753,3 +1033,226 @@ def list_margin_snapshots(
 
     items = db.execute(query).scalars().all()
     return [serialize_instance(item) for item in items]
+
+BI_PERIOD_SUMMARY_VIEW = "mv_costing_period_summary"
+BI_MARGIN_CUSTOMER_VIEW = "mv_margin_customer_summary"
+
+
+def _db_dialect_name(db: Session) -> str:
+    bind = db.get_bind()
+    return str(getattr(getattr(bind, "dialect", None), "name", "") or "").lower()
+
+
+def _serialize_mapping_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    return [{key: serialize_value(value) for key, value in row.items()} for row in rows]
+
+
+def _ensure_postgres_bi_materialized_views(db: Session) -> None:
+    db.execute(
+        text(
+            f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {BI_PERIOD_SUMMARY_VIEW} AS
+SELECT
+  cp.organization_id,
+  cp.id AS period_id,
+  cp.period_code,
+  cp.status AS period_status,
+  cp.start_date,
+  cp.end_date,
+  COALESCE(u.total_output_m3, 0) AS total_output_m3,
+  COALESCE(u.total_cost, 0) AS total_cost,
+  CASE WHEN COALESCE(u.total_output_m3, 0) > 0
+    THEN ROUND((COALESCE(u.total_cost, 0) / NULLIF(COALESCE(u.total_output_m3, 0), 0))::numeric, 2)
+    ELSE 0
+  END AS avg_unit_cost,
+  COALESCE(m.total_revenue, 0) AS total_revenue,
+  COALESCE(m.total_margin, 0) AS total_margin,
+  COALESCE(u.snapshot_count, 0) AS unit_cost_snapshot_count,
+  COALESCE(m.snapshot_count, 0) AS margin_snapshot_count,
+  now() AS refreshed_at
+FROM cost_periods cp
+LEFT JOIN (
+  SELECT period_id,
+         SUM(COALESCE(output_volume_m3, 0)) AS total_output_m3,
+         SUM(COALESCE(total_cost, 0)) AS total_cost,
+         COUNT(*) AS snapshot_count
+  FROM unit_cost_snapshots
+  GROUP BY period_id
+) u ON u.period_id = cp.id
+LEFT JOIN (
+  SELECT period_id,
+         SUM(COALESCE(revenue_amount, 0)) AS total_revenue,
+         SUM(COALESCE(margin_amount, 0)) AS total_margin,
+         COUNT(*) AS snapshot_count
+  FROM margin_snapshots
+  GROUP BY period_id
+) m ON m.period_id = cp.id
+"""
+        )
+    )
+    db.execute(
+        text(
+            f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {BI_MARGIN_CUSTOMER_VIEW} AS
+SELECT
+  ms.organization_id,
+  ms.period_id,
+  cp.period_code,
+  COALESCE(ms.customer_id, 'unknown') AS customer_id,
+  COUNT(*) AS snapshot_count,
+  COALESCE(SUM(ms.delivered_volume_m3), 0) AS total_volume_m3,
+  COALESCE(SUM(ms.revenue_amount), 0) AS total_revenue,
+  COALESCE(SUM(ms.cost_amount), 0) AS total_cost,
+  COALESCE(SUM(ms.margin_amount), 0) AS total_margin,
+  CASE WHEN COALESCE(SUM(ms.revenue_amount), 0) = 0
+    THEN 0
+    ELSE ROUND((COALESCE(SUM(ms.margin_amount), 0) / NULLIF(COALESCE(SUM(ms.revenue_amount), 0), 0))::numeric * 100, 3)
+  END AS margin_pct,
+  now() AS refreshed_at
+FROM margin_snapshots ms
+LEFT JOIN cost_periods cp ON cp.id = ms.period_id
+GROUP BY ms.organization_id, ms.period_id, cp.period_code, COALESCE(ms.customer_id, 'unknown')
+"""
+        )
+    )
+
+
+def _ensure_sqlite_bi_tables(db: Session) -> None:
+    db.execute(text(f"CREATE TABLE IF NOT EXISTS {BI_PERIOD_SUMMARY_VIEW} (organization_id TEXT, period_id TEXT, period_code TEXT, period_status TEXT, start_date TEXT, end_date TEXT, total_output_m3 REAL, total_cost REAL, avg_unit_cost REAL, total_revenue REAL, total_margin REAL, unit_cost_snapshot_count INTEGER, margin_snapshot_count INTEGER, refreshed_at TEXT)"))
+    db.execute(text(f"CREATE TABLE IF NOT EXISTS {BI_MARGIN_CUSTOMER_VIEW} (organization_id TEXT, period_id TEXT, period_code TEXT, customer_id TEXT, snapshot_count INTEGER, total_volume_m3 REAL, total_revenue REAL, total_cost REAL, total_margin REAL, margin_pct REAL, refreshed_at TEXT)"))
+
+
+def _refresh_sqlite_bi_tables(db: Session, *, organization_id: str, refreshed_at: datetime) -> None:
+    _ensure_sqlite_bi_tables(db)
+    db.execute(text(f"DELETE FROM {BI_PERIOD_SUMMARY_VIEW} WHERE organization_id = :organization_id"), {"organization_id": organization_id})
+    db.execute(
+        text(
+            f"""
+INSERT INTO {BI_PERIOD_SUMMARY_VIEW} (
+  organization_id, period_id, period_code, period_status, start_date, end_date,
+  total_output_m3, total_cost, avg_unit_cost, total_revenue, total_margin,
+  unit_cost_snapshot_count, margin_snapshot_count, refreshed_at
+)
+SELECT
+  cp.organization_id, cp.id, cp.period_code, cp.status, cp.start_date, cp.end_date,
+  COALESCE(u.total_output_m3, 0),
+  COALESCE(u.total_cost, 0),
+  CASE WHEN COALESCE(u.total_output_m3, 0) > 0 THEN ROUND(COALESCE(u.total_cost, 0) / u.total_output_m3, 2) ELSE 0 END,
+  COALESCE(m.total_revenue, 0),
+  COALESCE(m.total_margin, 0),
+  COALESCE(u.snapshot_count, 0),
+  COALESCE(m.snapshot_count, 0),
+  :refreshed_at
+FROM cost_periods cp
+LEFT JOIN (
+  SELECT period_id, SUM(COALESCE(output_volume_m3, 0)) AS total_output_m3, SUM(COALESCE(total_cost, 0)) AS total_cost, COUNT(*) AS snapshot_count
+  FROM unit_cost_snapshots GROUP BY period_id
+) u ON u.period_id = cp.id
+LEFT JOIN (
+  SELECT period_id, SUM(COALESCE(revenue_amount, 0)) AS total_revenue, SUM(COALESCE(margin_amount, 0)) AS total_margin, COUNT(*) AS snapshot_count
+  FROM margin_snapshots GROUP BY period_id
+) m ON m.period_id = cp.id
+WHERE cp.organization_id = :organization_id
+"""
+        ),
+        {"organization_id": organization_id, "refreshed_at": serialize_value(refreshed_at)},
+    )
+    db.execute(text(f"DELETE FROM {BI_MARGIN_CUSTOMER_VIEW} WHERE organization_id = :organization_id"), {"organization_id": organization_id})
+    db.execute(
+        text(
+            f"""
+INSERT INTO {BI_MARGIN_CUSTOMER_VIEW} (
+  organization_id, period_id, period_code, customer_id, snapshot_count,
+  total_volume_m3, total_revenue, total_cost, total_margin, margin_pct, refreshed_at
+)
+SELECT
+  ms.organization_id,
+  ms.period_id,
+  cp.period_code,
+  COALESCE(ms.customer_id, 'unknown') AS customer_id,
+  COUNT(*) AS snapshot_count,
+  COALESCE(SUM(ms.delivered_volume_m3), 0),
+  COALESCE(SUM(ms.revenue_amount), 0),
+  COALESCE(SUM(ms.cost_amount), 0),
+  COALESCE(SUM(ms.margin_amount), 0),
+  CASE WHEN COALESCE(SUM(ms.revenue_amount), 0) = 0 THEN 0 ELSE ROUND((COALESCE(SUM(ms.margin_amount), 0) / SUM(ms.revenue_amount)) * 100, 3) END,
+  :refreshed_at
+FROM margin_snapshots ms
+LEFT JOIN cost_periods cp ON cp.id = ms.period_id
+WHERE ms.organization_id = :organization_id
+GROUP BY ms.organization_id, ms.period_id, cp.period_code, COALESCE(ms.customer_id, 'unknown')
+"""
+        ),
+        {"organization_id": organization_id, "refreshed_at": serialize_value(refreshed_at)},
+    )
+
+
+def refresh_bi_materialized_views(db: Session, *, organization_id: str) -> dict[str, Any]:
+    dialect = _db_dialect_name(db)
+    refreshed_at = _utcnow()
+    if dialect == "postgresql":
+        _ensure_postgres_bi_materialized_views(db)
+        db.execute(text(f"REFRESH MATERIALIZED VIEW {BI_PERIOD_SUMMARY_VIEW}"))
+        db.execute(text(f"REFRESH MATERIALIZED VIEW {BI_MARGIN_CUSTOMER_VIEW}"))
+    else:
+        _refresh_sqlite_bi_tables(db, organization_id=organization_id, refreshed_at=refreshed_at)
+    db.commit()
+    result = list_bi_materialized_views(db, organization_id=organization_id, period_id=None, customer_id=None, limit=200)
+    return {
+        "organization_id": organization_id,
+        "dialect": dialect or "unknown",
+        "refreshed_at": serialize_value(refreshed_at),
+        "views": result["views"],
+    }
+
+
+def list_bi_materialized_views(
+    db: Session,
+    *,
+    organization_id: str,
+    period_id: str | None,
+    customer_id: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    dialect = _db_dialect_name(db)
+    if dialect == "postgresql":
+        _ensure_postgres_bi_materialized_views(db)
+    else:
+        _ensure_sqlite_bi_tables(db)
+
+    period_where = ""
+    period_params: dict[str, Any] = {"organization_id": organization_id, "limit": limit}
+    if period_id:
+        period_where = " AND period_id = :period_id"
+        period_params["period_id"] = period_id
+
+    margin_where = ""
+    margin_params: dict[str, Any] = {"organization_id": organization_id, "limit": limit}
+    if period_id:
+        margin_where += " AND period_id = :period_id"
+        margin_params["period_id"] = period_id
+    if customer_id:
+        margin_where += " AND customer_id = :customer_id"
+        margin_params["customer_id"] = customer_id
+
+    period_rows = db.execute(
+        text(
+            f"SELECT organization_id, period_id, period_code, period_status, start_date, end_date, total_output_m3, total_cost, avg_unit_cost, total_revenue, total_margin, unit_cost_snapshot_count, margin_snapshot_count, refreshed_at FROM {BI_PERIOD_SUMMARY_VIEW} WHERE organization_id = :organization_id{period_where} ORDER BY start_date DESC, period_code DESC LIMIT :limit"
+        ),
+        period_params,
+    ).mappings().all()
+
+    margin_rows = db.execute(
+        text(
+            f"SELECT organization_id, period_id, period_code, customer_id, snapshot_count, total_volume_m3, total_revenue, total_cost, total_margin, margin_pct, refreshed_at FROM {BI_MARGIN_CUSTOMER_VIEW} WHERE organization_id = :organization_id{margin_where} ORDER BY period_code DESC, customer_id ASC LIMIT :limit"
+        ),
+        margin_params,
+    ).mappings().all()
+
+    return {
+        "organization_id": organization_id,
+        "views": [
+            {"name": BI_PERIOD_SUMMARY_VIEW, "row_count": len(period_rows), "rows": _serialize_mapping_rows(period_rows)},
+            {"name": BI_MARGIN_CUSTOMER_VIEW, "row_count": len(margin_rows), "rows": _serialize_mapping_rows(margin_rows)},
+        ],
+    }

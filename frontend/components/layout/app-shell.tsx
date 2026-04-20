@@ -2,10 +2,13 @@
 
 import {
   BookOpen,
+  BookOpenText,
+  ChevronDown,
+  ChevronRight,
+  Circle,
   Database,
   Factory,
   LayoutDashboard,
-  ListFilter,
   Loader2,
   LogIn,
   LogOut,
@@ -29,26 +32,164 @@ import { cn } from "@/lib/utils";
 
 import { LocaleSwitcher } from "./locale-switcher";
 
-type NavItem = {
-  href: string;
+type IconType = React.ComponentType<{ className?: string }>;
+
+type NavNode = {
+  id: string;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  href?: string;
+  icon?: IconType;
   roles?: string[];
+  children?: NavNode[];
 };
 
-const navItems: NavItem[] = [
-  { href: "/", label: "Tổng quan", icon: LayoutDashboard },
-  { href: "/danh-muc/khach-hang", label: "Danh mục nền", icon: Database },
-  { href: "/kho-gia-thanh", label: "Kho & giá thành", icon: Package },
-  { href: "/gia-thanh-nang-cao", label: "Sản xuất & biên lợi nhuận", icon: Factory },
-  { href: "/kinh-doanh", label: "Điều hành kinh doanh", icon: BookOpen },
-  { href: "/kinh-doanh/don-hang", label: "Danh sách đơn hàng", icon: ListFilter },
-  { href: "/dieu-phoi", label: "Điều phối", icon: Truck },
-  { href: "/di-dong/tai-xe", label: "Vận hành di động", icon: Smartphone },
-  { href: "/quan-tri/tai-khoan", label: "Quản trị", icon: ShieldCheck, roles: ["SYS_ADMIN"] },
-  { href: "/nhap-du-lieu", label: "Nhập dữ liệu", icon: Upload },
-  { href: "/cau-hinh-he-thong", label: "Cấu hình", icon: Settings }
+type NavGroup = {
+  id: string;
+  label: string;
+  icon: IconType;
+  href?: string;
+  roles?: string[];
+  children?: NavNode[];
+};
+
+const navGroups: NavGroup[] = [
+  { id: "overview", href: "/", label: "Tổng quan", icon: LayoutDashboard },
+  { id: "guide", href: "/huong-dan-su-dung", label: "Hướng dẫn sử dụng", icon: BookOpenText },
+  {
+    id: "master",
+    label: "Danh mục nền",
+    icon: Database,
+    children: [
+      { id: "master-customers", href: "/danh-muc/khach-hang", label: "Khách hàng" },
+      { id: "master-business-units", href: "/danh-muc/don-vi-kinh-doanh", label: "Đơn vị kinh doanh" },
+      { id: "master-sites", href: "/danh-muc/cong-trinh", label: "Công trình" }
+    ]
+  },
+  {
+    id: "inventory-costing",
+    label: "Kho & giá thành",
+    icon: Package,
+    children: [
+      { id: "inventory-home", href: "/kho-gia-thanh", label: "Tổng quan kho & kỳ" },
+      { id: "costing-advanced", href: "/gia-thanh-nang-cao", label: "Sản xuất & biên lợi nhuận" }
+    ]
+  },
+  {
+    id: "sales",
+    label: "Điều hành kinh doanh",
+    icon: BookOpen,
+    children: [
+      { id: "sales-home", href: "/kinh-doanh", label: "Tổng quan module" },
+      {
+        id: "sales-pricing",
+        label: "Định giá & báo giá",
+        children: [
+          { id: "sales-price-books", href: "/kinh-doanh/bang-gia/danh-sach", label: "Bảng giá" },
+          { id: "sales-price-rules", href: "/kinh-doanh/bang-gia/quy-tac", label: "Quy tắc giá" },
+          { id: "sales-quotations", href: "/kinh-doanh/bao-gia", label: "Báo giá" }
+        ]
+      },
+      {
+        id: "sales-order-flow",
+        label: "Đơn hàng & nhu cầu đổ",
+        children: [
+          { id: "sales-pour-requests", href: "/kinh-doanh/yeu-cau-do", label: "Yêu cầu đổ" },
+          { id: "sales-orders", href: "/kinh-doanh/don-hang", label: "Đơn hàng" }
+        ]
+      }
+    ]
+  },
+  {
+    id: "dispatch",
+    label: "Điều phối",
+    icon: Truck,
+    children: [
+      { id: "dispatch-home", href: "/dieu-phoi", label: "Tổng quan module" },
+      {
+        id: "dispatch-planning",
+        label: "Lập lịch điều phối",
+        children: [
+          { id: "dispatch-inbox", href: "/dieu-phoi/hop-cho", label: "Hộp chờ" },
+          { id: "dispatch-board", href: "/dieu-phoi/bang-dieu-phoi", label: "Bảng điều phối" }
+        ]
+      },
+      {
+        id: "dispatch-station",
+        label: "Hàng chờ trạm",
+        children: [
+          { id: "dispatch-queue", href: "/dieu-phoi/hang-cho-tram", label: "Danh sách chuyến chờ" },
+          {
+            id: "dispatch-station-capacity",
+            href: "/dieu-phoi/hang-cho-tram/khung-nang-luc-tram",
+            label: "Khung năng lực trạm"
+          }
+        ]
+      },
+      {
+        id: "dispatch-performance",
+        label: "Đối soát & KPI",
+        children: [
+          { id: "dispatch-reconciliation", href: "/dieu-phoi/doi-soat", label: "Đối soát" },
+          { id: "dispatch-kpi", href: "/dieu-phoi/kpi", label: "KPI vận hành" }
+        ]
+      }
+    ]
+  },
+  {
+    id: "mobile",
+    label: "Vận hành di động",
+    icon: Smartphone,
+    children: [
+      { id: "mobile-driver", href: "/di-dong/tai-xe", label: "PWA tài xế" },
+      { id: "mobile-pump", href: "/di-dong/doi-bom", label: "PWA đội bơm" }
+    ]
+  },
+  {
+    id: "admin",
+    label: "Quản trị",
+    icon: ShieldCheck,
+    roles: ["SYS_ADMIN"],
+    children: [
+      { id: "admin-users", href: "/quan-tri/tai-khoan", label: "Tài khoản", roles: ["SYS_ADMIN"] },
+      { id: "admin-roles", href: "/quan-tri/vai-tro", label: "Vai trò", roles: ["SYS_ADMIN"] },
+      { id: "admin-permissions", href: "/quan-tri/quyen", label: "Quyền", roles: ["SYS_ADMIN"] },
+      {
+        id: "admin-role-permissions",
+        href: "/quan-tri/phan-quyen-vai-tro",
+        label: "Phân quyền vai trò",
+        roles: ["SYS_ADMIN"]
+      },
+      {
+        id: "admin-user-roles",
+        href: "/quan-tri/gan-vai-tro-nguoi-dung",
+        label: "Gán vai trò người dùng",
+        roles: ["SYS_ADMIN"]
+      }
+    ]
+  },
+  { id: "import", href: "/nhap-du-lieu", label: "Nhập dữ liệu", icon: Upload },
+  { id: "settings", href: "/cau-hinh-he-thong", label: "Cấu hình", icon: Settings }
 ];
+
+function hasRoleAccess(itemRoles: string[] | undefined, userRoles: Set<string>): boolean {
+  if (!itemRoles || itemRoles.length === 0) return true;
+  return itemRoles.some((role) => userRoles.has(role));
+}
+
+function filterNavNodeByRole(node: NavNode, roles: Set<string>): NavNode | null {
+  if (!hasRoleAccess(node.roles, roles)) return null;
+
+  const visibleChildren = (node.children ?? [])
+    .map((child) => filterNavNodeByRole(child, roles))
+    .filter((child): child is NavNode => child !== null);
+
+  if (!node.href && visibleChildren.length === 0) return null;
+
+  return {
+    ...node,
+    children: visibleChildren
+  };
+}
 
 export function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
@@ -57,7 +198,39 @@ export function AppShell({ children }: PropsWithChildren) {
 
   const [authChecking, setAuthChecking] = useState(Boolean(accessToken));
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const isLoginPage = pathname === "/login" || pathname === "/dang-nhap";
+
+  function isPathActive(href: string): boolean {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  }
+
+  function isNodeActive(node: NavNode): boolean {
+    if (node.href && isPathActive(node.href)) return true;
+    return (node.children ?? []).some((child) => isNodeActive(child));
+  }
+
+  function findActiveLabel(nodes: Array<NavNode | NavGroup>): string | null {
+    for (const node of nodes) {
+      const childLabel = findActiveLabel(node.children ?? []);
+      if (childLabel) return childLabel;
+      if (node.href && isPathActive(node.href)) return node.label;
+    }
+    return null;
+  }
+
+  function collectExpandedNodeIds(nodes: NavNode[], ids: Set<string>) {
+    nodes.forEach((node) => {
+      const children = node.children ?? [];
+      if (children.length > 0) {
+        if (children.some((child) => isNodeActive(child))) {
+          ids.add(node.id);
+        }
+        collectExpandedNodeIds(children, ids);
+      }
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -123,13 +296,102 @@ export function AppShell({ children }: PropsWithChildren) {
     }
   }, [accessToken, authChecking, isLoginPage, router]);
 
-  const visibleNavItems = useMemo(() => {
+  const visibleNavGroups = useMemo(() => {
     const roles = new Set(user?.roles ?? []);
-    return navItems.filter((item) => {
-      if (!item.roles || item.roles.length === 0) return true;
-      return item.roles.some((role) => roles.has(role));
-    });
+
+    return navGroups
+      .map<NavGroup | null>((group) => {
+        if (!hasRoleAccess(group.roles, roles)) return null;
+
+        const visibleChildren = (group.children ?? [])
+          .map((child) => filterNavNodeByRole(child, roles))
+          .filter((child): child is NavNode => child !== null);
+
+        if (!group.href && visibleChildren.length === 0) return null;
+
+        return {
+          ...group,
+          children: visibleChildren
+        };
+      })
+      .filter((group): group is NavGroup => group !== null);
   }, [user?.roles]);
+
+  const activeLabel = useMemo(() => {
+    const label = findActiveLabel(visibleNavGroups);
+    return label ?? (pathname === "/" ? "Tổng quan" : pathname);
+  }, [pathname, visibleNavGroups]);
+
+  const defaultExpandedGroupIds = useMemo(() => {
+    const ids = new Set<string>();
+    visibleNavGroups.forEach((group) => {
+      const children = group.children ?? [];
+      if (children.some((child) => isNodeActive(child))) {
+        ids.add(group.id);
+      }
+      collectExpandedNodeIds(children, ids);
+    });
+    return ids;
+  }, [pathname, visibleNavGroups]);
+
+  function isGroupExpanded(groupId: string): boolean {
+    return openGroups[groupId] ?? defaultExpandedGroupIds.has(groupId);
+  }
+
+  function toggleGroup(groupId: string) {
+    setOpenGroups((current) => {
+      const currentValue = current[groupId] ?? defaultExpandedGroupIds.has(groupId);
+      return { ...current, [groupId]: !currentValue };
+    });
+  }
+
+  function renderNestedNode(node: NavNode, depth: number): React.ReactNode {
+    const children = node.children ?? [];
+    const hasChildren = children.length > 0;
+    const expanded = isGroupExpanded(node.id);
+    const nodeActive = isNodeActive(node);
+    const indentClass = depth === 1 ? "ml-6" : depth === 2 ? "ml-10" : "ml-14";
+    const NodeIcon = node.icon;
+
+    if (!hasChildren && node.href) {
+      return (
+        <Link
+          key={node.id}
+          className={cn(
+            "ta-menu-subitem",
+            indentClass,
+            nodeActive ? "ta-menu-subitem-active" : "ta-menu-subitem-inactive"
+          )}
+          href={node.href}
+          onClick={() => setSidebarOpen(false)}
+        >
+          {NodeIcon ? <NodeIcon className="h-4 w-4" /> : <Circle className="h-2.5 w-2.5" />}
+          <span>{node.label}</span>
+        </Link>
+      );
+    }
+
+    return (
+      <div key={node.id} className={cn("space-y-1", indentClass)}>
+        <button
+          className={cn(
+            "ta-menu-subitem w-full justify-between",
+            nodeActive ? "ta-menu-subitem-active" : "ta-menu-subitem-inactive"
+          )}
+          onClick={() => toggleGroup(node.id)}
+          type="button"
+        >
+          <span className="flex items-center gap-2">
+            {NodeIcon ? <NodeIcon className="h-4 w-4" /> : <Circle className="h-2.5 w-2.5" />}
+            <span>{node.label}</span>
+          </span>
+          {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+
+        {expanded ? <div className="space-y-1">{children.map((child) => renderNestedNode(child, depth + 1))}</div> : null}
+      </div>
+    );
+  }
 
   async function handleLogout() {
     try {
@@ -157,13 +419,11 @@ export function AppShell({ children }: PropsWithChildren) {
     );
   }
 
-  const pathnameLabel = pathname === "/" ? "Tổng quan" : pathname;
-
   return (
     <div className="min-h-screen bg-gray-100">
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[290px] flex-col border-r border-gray-200 bg-white px-4 py-5 shadow-theme-md transition-transform duration-300 lg:translate-x-0 lg:shadow-none",
+          "fixed inset-y-0 left-0 z-50 flex w-[300px] flex-col border-r border-gray-200 bg-white px-4 py-5 shadow-theme-md transition-transform duration-300 lg:translate-x-0 lg:shadow-none",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -188,20 +448,47 @@ export function AppShell({ children }: PropsWithChildren) {
 
         <div className="px-2 text-xs font-semibold uppercase tracking-widest text-gray-400">Điều hướng</div>
         <nav className="mt-3 space-y-1.5 overflow-y-auto pb-4">
-          {visibleNavItems.map((item) => {
-            const Icon = item.icon;
-            const active = pathname.startsWith(item.href) && item.href !== "/" ? true : pathname === item.href;
+          {visibleNavGroups.map((group) => {
+            const GroupIcon = group.icon;
+            const children = group.children ?? [];
+            const hasChildren = children.length > 0;
+            const expanded = isGroupExpanded(group.id);
+            const groupActive =
+              (group.href ? isPathActive(group.href) : false) || children.some((child) => isNodeActive(child));
+
+            if (!hasChildren && group.href) {
+              return (
+                <Link
+                  key={group.id}
+                  className={cn("ta-menu-item", groupActive ? "ta-menu-item-active" : "ta-menu-item-inactive")}
+                  href={group.href}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <GroupIcon className="h-4 w-4" />
+                  <span>{group.label}</span>
+                </Link>
+              );
+            }
 
             return (
-              <Link
-                key={item.href}
-                className={cn("ta-menu-item", active ? "ta-menu-item-active" : "ta-menu-item-inactive")}
-                href={item.href}
-                onClick={() => setSidebarOpen(false)}
-              >
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
-              </Link>
+              <div key={group.id} className="space-y-1">
+                <button
+                  className={cn(
+                    "ta-menu-item w-full justify-between",
+                    groupActive ? "ta-menu-item-active" : "ta-menu-item-inactive"
+                  )}
+                  onClick={() => toggleGroup(group.id)}
+                  type="button"
+                >
+                  <span className="flex items-center gap-3">
+                    <GroupIcon className="h-4 w-4" />
+                    <span>{group.label}</span>
+                  </span>
+                  {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+
+                {expanded ? <div className="space-y-1">{children.map((child) => renderNestedNode(child, 1))}</div> : null}
+              </div>
             );
           })}
         </nav>
@@ -210,19 +497,12 @@ export function AppShell({ children }: PropsWithChildren) {
           <p className="text-xs text-gray-500">Đang đăng nhập</p>
           <p className="mt-1 truncate text-sm font-medium text-gray-900">{user ? `${user.full_name} (${user.username})` : "Khách"}</p>
           {accessToken ? (
-            <button
-              className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-              onClick={handleLogout}
-              type="button"
-            >
+            <button className="ta-button mt-3 w-full" onClick={handleLogout} type="button">
               <LogOut className="h-4 w-4" />
               Đăng xuất
             </button>
           ) : (
-            <Link
-              className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-brand-500 text-sm font-medium text-white transition hover:bg-brand-600"
-              href="/dang-nhap"
-            >
+            <Link className="ta-button-primary mt-3 w-full" href="/dang-nhap">
               <LogIn className="h-4 w-4" />
               Đăng nhập
             </Link>
@@ -232,14 +512,14 @@ export function AppShell({ children }: PropsWithChildren) {
 
       {sidebarOpen ? (
         <button
+          aria-label="Đóng lớp phủ thanh bên"
           className="fixed inset-0 z-40 bg-gray-900/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
           type="button"
-          aria-label="Đóng lớp phủ thanh bên"
         />
       ) : null}
 
-      <div className="min-h-screen lg:ml-[290px]">
+      <div className="min-h-screen lg:ml-[300px]">
         <header className="sticky top-0 z-30 flex h-[74px] items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur md:px-6">
           <div className="flex items-center gap-3">
             <button
@@ -252,12 +532,12 @@ export function AppShell({ children }: PropsWithChildren) {
 
             <div className="relative hidden md:block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input className="ta-input w-[300px] pl-9" placeholder="Tìm nhanh trong hệ thống..." />
+              <input className="ta-input w-[320px] pl-9" placeholder="Tìm nhanh trong hệ thống..." />
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="hidden rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 md:inline-flex">{pathnameLabel}</span>
+            <span className="hidden rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 md:inline-flex">{activeLabel}</span>
             <LocaleSwitcher />
           </div>
         </header>

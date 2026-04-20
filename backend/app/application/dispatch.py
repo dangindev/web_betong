@@ -30,12 +30,18 @@ from app.domain.models import (
     ScheduleRun,
     ScheduleVersion,
     ScheduledTrip,
+    SystemSetting,
     TravelEstimate,
     Trip,
     TripEvent,
     Vehicle,
     VehicleAvailability,
 )
+
+try:
+    from ortools.sat.python import cp_model  # type: ignore
+except Exception:  # noqa: BLE001
+    cp_model = None
 
 TRIP_EVENT_SEQUENCE = [
     "assigned",
@@ -59,6 +65,168 @@ PUMP_EVENT_SEQUENCE = [
     "pump_end",
     "teardown_end",
 ]
+
+SCHEDULER_WEIGHT_SETTING_KEY = "dispatch_scheduler_score_weights"
+DEFAULT_SCHEDULER_SCORE_WEIGHTS = {
+    "delay_weight": 1.0,
+    "empty_km_weight": 0.9,
+    "utilization_weight": 0.8,
+}
+
+
+def _clamp(value: float, min_value: float, max_value: float) -> float:
+    return max(min_value, min(max_value, value))
+
+
+def _normalize_scheduler_mode(scheduler_mode: str | None) -> str:
+    mode = str(scheduler_mode or "v1").strip().lower()
+    if mode in {"v2", "heuristic_v2", "ortools_v2"}:
+        return "v2"
+    if mode in {"v1", "heuristic_v1", "default"}:
+        return "v1"
+    raise ValueError("scheduler_mode phải là v1 hoặc v2")
+
+
+def _route_key(plant_id: str | None, site_id: str | None) -> str:
+    return f"{plant_id or 'plant'}::{site_id or 'site'}"
+
+
+def _load_scheduler_score_weights(db: Session, organization_id: str) -> dict[str, float]:
+    setting = (
+        db.execute(
+            select(SystemSetting)
+            .where(SystemSetting.organization_id == organization_id)
+            .where(SystemSetting.key == SCHEDULER_WEIGHT_SETTING_KEY)
+            .order_by(SystemSetting.updated_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+    raw = setting.value_json if setting and isinstance(setting.value_json, dict) else {}
+    normalized = {
+        key: float(raw.get(key, default))
+        for key, default in DEFAULT_SCHEDULER_SCORE_WEIGHTS.items()
+    }
+
+    normalized["delay_weight"] = _clamp(normalized["delay_weight"], 0.5, 3.0)
+    normalized["empty_km_weight"] = _clamp(normalized["empty_km_weight"], 0.3, 2.5)
+    normalized["utilization_weight"] = _clamp(normalized["utilization_weight"], 0.3, 2.5)
+    return normalized
+
+
+def _save_scheduler_score_weights(db: Session, organization_id: str, weights: dict[str, float]) -> dict[str, float]:
+    normalized = {
+        "delay_weight": round(_clamp(float(weights.get("delay_weight", 1.0)), 0.5, 3.0), 4),
+        "empty_km_weight": round(_clamp(float(weights.get("empty_km_weight", 0.9)), 0.3, 2.5), 4),
+        "utilization_weight": round(_clamp(float(weights.get("utilization_weight", 0.8)), 0.3, 2.5), 4),
+    }
+
+    setting = (
+        db.execute(
+            select(SystemSetting)
+            .where(SystemSetting.organization_id == organization_id)
+            .where(SystemSetting.key == SCHEDULER_WEIGHT_SETTING_KEY)
+            .order_by(SystemSetting.updated_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+    if setting is None:
+        setting = SystemSetting(
+            organization_id=organization_id,
+            key=SCHEDULER_WEIGHT_SETTING_KEY,
+            value_json=normalized,
+            description="Score weights cho scheduler v2 learning loop",
+        )
+        db.add(setting)
+    else:
+        setting.value_json = normalized
+        if not setting.description:
+            setting.description = "Score weights cho scheduler v2 learning loop"
+
+    return normalized
+
+
+def _estimate_route_distance_km(db: Session, organization_id: str, plant_id: str | None, site_id: str | None) -> float:
+    estimate = (
+        db.execute(
+            select(TravelEstimate)
+            .where(TravelEstimate.organization_id == organization_id)
+            .where(TravelEstimate.route_key == _route_key(plant_id, site_id))
+            .order_by(TravelEstimate.updated_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+    distance = _as_float(estimate.distance_km, default=0) if estimate else 0
+    if distance > 0:
+        return distance
+    return 12.0
+
+
+def _vehicle_capacity_m3(vehicle: Vehicle) -> float:
+    return _as_float(vehicle.effective_capacity_m3, default=0) or _as_float(vehicle.capacity_m3, default=7) or 7
+
+
+def _select_vehicle_for_order_v2(
+    vehicle_pool: list[Vehicle],
+    vehicle_usage: dict[str, int],
+    *,
+    expected_volume: float,
+    cycle_minutes: int,
+    distance_km: float,
+    weights: dict[str, float],
+) -> tuple[Vehicle, str]:
+    if not vehicle_pool:
+        raise ValueError("Không có xe khả dụng")
+
+    score_by_index: list[int] = []
+    score_by_vehicle_id: dict[str, int] = {}
+
+    for vehicle in vehicle_pool:
+        vehicle_id = str(vehicle.id)
+        usage = float(vehicle_usage.get(vehicle_id, 0))
+        capacity = _vehicle_capacity_m3(vehicle)
+        capacity_gap = abs(capacity - max(expected_volume, 0.1))
+        score = (
+            weights["delay_weight"] * (usage + 1.0) * max(cycle_minutes, 30)
+            + weights["empty_km_weight"] * max(distance_km, 0)
+            + weights["utilization_weight"] * capacity_gap * 10
+        )
+        scaled = max(1, int(round(score * 100)))
+        score_by_index.append(scaled)
+        score_by_vehicle_id[vehicle_id] = scaled
+
+    if cp_model is not None and len(vehicle_pool) > 1:
+        try:
+            model = cp_model.CpModel()
+            vehicle_idx = model.NewIntVar(0, len(vehicle_pool) - 1, "vehicle_idx")
+            min_score = min(score_by_index)
+            max_score = max(score_by_index)
+            score_var = model.NewIntVar(min_score, max_score, "score")
+            model.AddElement(vehicle_idx, score_by_index, score_var)
+            model.Minimize(score_var)
+
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = 0.2
+            status = solver.Solve(model)
+            if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                selected_index = int(solver.Value(vehicle_idx))
+                return vehicle_pool[selected_index], "ortools_cp_sat"
+        except Exception:  # noqa: BLE001
+            pass
+
+    selected_vehicle = min(
+        vehicle_pool,
+        key=lambda item: (
+            int(vehicle_usage.get(str(item.id), 0)),
+            int(score_by_vehicle_id.get(str(item.id), 0)),
+            str(item.id),
+        ),
+    )
+    return selected_vehicle, "heuristic_fallback"
 
 
 def _utcnow() -> datetime:
@@ -351,20 +519,83 @@ def create_or_update_dispatch_order(
     return dispatch_order
 
 
+def _build_schedule_kpi_metrics(db: Session, organization_id: str, schedule_run_id: str) -> dict[str, float]:
+    trips = (
+        db.execute(
+            select(ScheduledTrip)
+            .where(ScheduledTrip.schedule_run_id == schedule_run_id)
+            .order_by(ScheduledTrip.trip_no.asc())
+        )
+        .scalars()
+        .all()
+    )
+    conflicts_count = len(
+        db.execute(select(ScheduleConflict).where(ScheduleConflict.schedule_run_id == schedule_run_id)).scalars().all()
+    )
+
+    scheduled_count = len(trips)
+    avg_cycle_minutes = (
+        sum(max(_as_float(item.cycle_minutes), 0) for item in trips) / scheduled_count
+        if scheduled_count
+        else 0
+    )
+    planned_volume_m3 = sum(max(_as_float(item.planned_volume_m3), 0) for item in trips)
+
+    pour_request_ids = [str(item.pour_request_id) for item in trips if item.pour_request_id]
+    pour_requests = (
+        db.execute(select(PourRequest).where(PourRequest.id.in_(pour_request_ids))).scalars().all()
+        if pour_request_ids
+        else []
+    )
+    pour_map = {str(item.id): item for item in pour_requests}
+
+    estimated_empty_km = 0.0
+    for item in trips:
+        pour_request = pour_map.get(str(item.pour_request_id)) if item.pour_request_id else None
+        site_id = str(getattr(pour_request, "site_id", "") or "") if pour_request else None
+        estimated_empty_km += _estimate_route_distance_km(
+            db,
+            organization_id=organization_id,
+            plant_id=str(item.assigned_plant_id or "") or None,
+            site_id=site_id,
+        ) * 0.35
+
+    on_time_proxy_pct = (scheduled_count / max(1, scheduled_count + conflicts_count)) * 100
+
+    return {
+        "scheduled_trips": float(scheduled_count),
+        "conflicts": float(conflicts_count),
+        "avg_cycle_minutes": round(avg_cycle_minutes, 2),
+        "planned_volume_m3": round(planned_volume_m3, 3),
+        "estimated_empty_km": round(estimated_empty_km, 3),
+        "on_time_proxy_pct": round(on_time_proxy_pct, 2),
+    }
+
+
 def run_scheduler(
     db: Session,
     organization_id: str,
     actor_user_id: str,
     run_date: date | None = None,
     dispatch_order_ids: list[str] | None = None,
+    scheduler_mode: str = "v1",
 ) -> dict[str, Any]:
+    mode = _normalize_scheduler_mode(scheduler_mode)
+    score_weights = _load_scheduler_score_weights(db, organization_id) if mode == "v2" else None
+
     run = ScheduleRun(
         organization_id=organization_id,
         run_code=f"SCH-{_utcnow().strftime('%Y%m%d-%H%M%S')}",
         run_date=run_date,
         status="running",
         created_by=actor_user_id,
-        input_snapshot_json={"dispatch_order_ids": dispatch_order_ids or [], "run_date": str(run_date) if run_date else None},
+        algorithm_version="heuristic_v2" if mode == "v2" else "heuristic_v1",
+        input_snapshot_json={
+            "dispatch_order_ids": dispatch_order_ids or [],
+            "run_date": str(run_date) if run_date else None,
+            "scheduler_mode": mode,
+            "score_weights": score_weights,
+        },
     )
     db.add(run)
     db.flush()
@@ -391,8 +622,12 @@ def run_scheduler(
 
     vehicle_idx = 0
     pump_idx = 0
+    vehicle_usage: dict[str, int] = {str(item.id): 0 for item in vehicle_pool}
+    pump_usage: dict[str, int] = {str(item.id): 0 for item in pump_pool}
+
     created_trips = 0
     created_conflicts = 0
+    solver_engines: set[str] = set()
 
     slots = (
         db.execute(select(PlantCapacitySlot).where(PlantCapacitySlot.organization_id == organization_id))
@@ -453,6 +688,31 @@ def run_scheduler(
             created_conflicts += 1
             continue
 
+        requested_volume = _as_float(getattr(pour_request, "requested_volume_m3", None), default=0)
+        site_id = str(getattr(pour_request, "site_id", "") or "")
+        cycle_minutes = _resolve_cycle_minutes(db, organization_id, plant_id, site_id)
+        distance_km = _estimate_route_distance_km(db, organization_id, plant_id, site_id)
+
+        if mode == "v2":
+            weights = score_weights or DEFAULT_SCHEDULER_SCORE_WEIGHTS
+            selected_vehicle, solver_engine = _select_vehicle_for_order_v2(
+                vehicle_pool,
+                vehicle_usage,
+                expected_volume=requested_volume if requested_volume > 0 else 7,
+                cycle_minutes=cycle_minutes,
+                distance_km=distance_km,
+                weights=weights,
+            )
+            solver_engines.add(solver_engine)
+        else:
+            selected_vehicle = vehicle_pool[vehicle_idx % len(vehicle_pool)]
+            vehicle_idx += 1
+            solver_engines.add("heuristic_round_robin")
+
+        vehicle_capacity = _vehicle_capacity_m3(selected_vehicle)
+        trip_count = max(1, math.ceil(requested_volume / max(vehicle_capacity, 0.1)))
+        vehicle_usage[str(selected_vehicle.id)] = int(vehicle_usage.get(str(selected_vehicle.id), 0)) + trip_count
+
         requires_pump = bool(getattr(pour_request, "requires_pump", False))
         selected_pump_id: str | None = str(order.assigned_pump_id) if order.assigned_pump_id else None
         if requires_pump and not selected_pump_id:
@@ -466,18 +726,21 @@ def run_scheduler(
                     "Đơn yêu cầu bơm nhưng không có pump khả dụng.",
                 )
                 created_conflicts += 1
+                continue
+            if mode == "v2":
+                selected_pump = min(
+                    pump_pool,
+                    key=lambda item: (int(pump_usage.get(str(item.id), 0)), str(item.id)),
+                )
+                selected_pump_id = str(selected_pump.id)
             else:
                 selected_pump_id = str(pump_pool[pump_idx % len(pump_pool)].id)
                 pump_idx += 1
 
-        vehicle = vehicle_pool[vehicle_idx % len(vehicle_pool)]
-        vehicle_idx += 1
-        vehicle_capacity = _as_float(vehicle.effective_capacity_m3, default=0) or _as_float(vehicle.capacity_m3, default=7) or 7
+        if selected_pump_id:
+            pump_usage[selected_pump_id] = int(pump_usage.get(selected_pump_id, 0)) + trip_count
 
-        requested_volume = _as_float(getattr(pour_request, "requested_volume_m3", None), default=0)
-        trip_count = max(1, math.ceil(requested_volume / max(vehicle_capacity, 0.1)))
         base_start = getattr(pour_request, "requested_start_at", None) or (_utcnow() + timedelta(hours=order_pos))
-        cycle_minutes = _resolve_cycle_minutes(db, organization_id, plant_id, str(getattr(pour_request, "site_id", "")))
 
         for trip_no in range(1, trip_count + 1):
             load_start = base_start + timedelta(minutes=(trip_no - 1) * cycle_minutes)
@@ -518,7 +781,7 @@ def run_scheduler(
                 dispatch_order_id=order.id,
                 pour_request_id=order.pour_request_id,
                 trip_no=trip_no,
-                assigned_vehicle_id=vehicle.id,
+                assigned_vehicle_id=selected_vehicle.id,
                 assigned_pump_id=selected_pump_id,
                 assigned_plant_id=plant_id,
                 planned_volume_m3=max(min(vehicle_capacity, requested_volume), 0) if requested_volume > 0 else vehicle_capacity,
@@ -541,7 +804,7 @@ def run_scheduler(
                 scheduled_trip_id=scheduled_trip.id,
                 dispatch_order_id=order.id,
                 pour_request_id=order.pour_request_id,
-                vehicle_id=vehicle.id,
+                vehicle_id=selected_vehicle.id,
                 pump_id=selected_pump_id,
                 status="assigned",
             )
@@ -563,16 +826,26 @@ def run_scheduler(
 
         order.status = "scheduled"
 
+    db.flush()
+    kpi_metrics = _build_schedule_kpi_metrics(db, organization_id=organization_id, schedule_run_id=str(run.id))
+
     run.finished_at = _utcnow()
     run.status = "completed"
     run.result_summary_json = {
         "dispatch_orders": len(orders),
         "scheduled_trips": created_trips,
         "conflicts": created_conflicts,
+        "scheduler_mode": mode,
+        "kpi": kpi_metrics,
     }
     run.explanation_json = {
-        "algorithm": "heuristic_v1",
-        "notes": "Greedy assign theo xe khả dụng, tôn trọng resource lock và slot capacity cơ bản.",
+        "algorithm": "heuristic_v2" if mode == "v2" else "heuristic_v1",
+        "solver_engine": ",".join(sorted(solver_engines)) if solver_engines else ("heuristic_round_robin" if mode == "v1" else "heuristic_fallback"),
+        "notes": (
+            "v2: tối ưu phân bổ xe theo score weights, route estimate và cân bằng tải; ưu tiên CP-SAT khi runtime có OR-Tools."
+            if mode == "v2"
+            else "v1: greedy round-robin theo xe khả dụng, tôn trọng resource lock và slot capacity cơ bản."
+        ),
     }
 
     _record_notification(
@@ -581,7 +854,12 @@ def run_scheduler(
         channel="internal",
         template_code="scheduler_run_completed",
         recipient="dispatcher",
-        payload={"schedule_run_id": str(run.id), "trips": created_trips, "conflicts": created_conflicts},
+        payload={
+            "schedule_run_id": str(run.id),
+            "trips": created_trips,
+            "conflicts": created_conflicts,
+            "scheduler_mode": mode,
+        },
         related_entity_type="schedule_runs",
         related_entity_id=str(run.id),
     )
@@ -605,6 +883,81 @@ def run_scheduler(
         "scheduled_trips": [serialize_instance(item) for item in trips],
         "conflicts": [serialize_instance(item) for item in conflicts],
         "summary": run_refreshed.result_summary_json or {},
+    }
+
+
+def compare_scheduler_kpis(
+    db: Session,
+    organization_id: str,
+    run_id_v1: str | None = None,
+    run_id_v2: str | None = None,
+) -> dict[str, Any]:
+    if run_id_v1:
+        run_v1 = db.get(ScheduleRun, run_id_v1)
+    else:
+        run_v1 = (
+            db.execute(
+                select(ScheduleRun)
+                .where(ScheduleRun.organization_id == organization_id)
+                .where(ScheduleRun.algorithm_version == "heuristic_v1")
+                .order_by(ScheduleRun.started_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+
+    if run_id_v2:
+        run_v2 = db.get(ScheduleRun, run_id_v2)
+    else:
+        run_v2 = (
+            db.execute(
+                select(ScheduleRun)
+                .where(ScheduleRun.organization_id == organization_id)
+                .where(ScheduleRun.algorithm_version == "heuristic_v2")
+                .order_by(ScheduleRun.started_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+
+    if not run_v1 or str(run_v1.organization_id) != str(organization_id):
+        raise ValueError("Không tìm thấy scheduler run v1 để so sánh")
+    if not run_v2 or str(run_v2.organization_id) != str(organization_id):
+        raise ValueError("Không tìm thấy scheduler run v2 để so sánh")
+
+    summary_v1 = run_v1.result_summary_json if isinstance(run_v1.result_summary_json, dict) else {}
+    summary_v2 = run_v2.result_summary_json if isinstance(run_v2.result_summary_json, dict) else {}
+
+    kpi_v1 = summary_v1.get("kpi") if isinstance(summary_v1.get("kpi"), dict) else {}
+    kpi_v2 = summary_v2.get("kpi") if isinstance(summary_v2.get("kpi"), dict) else {}
+
+    if not kpi_v1:
+        kpi_v1 = _build_schedule_kpi_metrics(db, organization_id=organization_id, schedule_run_id=str(run_v1.id))
+    if not kpi_v2:
+        kpi_v2 = _build_schedule_kpi_metrics(db, organization_id=organization_id, schedule_run_id=str(run_v2.id))
+
+    metric_keys = sorted(set(kpi_v1.keys()) | set(kpi_v2.keys()))
+    delta: dict[str, float | None] = {}
+    for key in metric_keys:
+        value_v1 = kpi_v1.get(key)
+        value_v2 = kpi_v2.get(key)
+        if isinstance(value_v1, (int, float)) and isinstance(value_v2, (int, float)):
+            delta[key] = round(float(value_v2) - float(value_v1), 3)
+        else:
+            delta[key] = None
+
+    return {
+        "run_v1": {
+            "run_id": str(run_v1.id),
+            "algorithm_version": str(run_v1.algorithm_version or "heuristic_v1"),
+            "kpi": kpi_v1,
+        },
+        "run_v2": {
+            "run_id": str(run_v2.id),
+            "algorithm_version": str(run_v2.algorithm_version or "heuristic_v2"),
+            "kpi": kpi_v2,
+        },
+        "delta": delta,
     }
 
 
@@ -1067,6 +1420,129 @@ def apply_offline_sync_batch(
     return {"processed": len(results), "results": results}
 
 
+def _apply_learning_loop(
+    db: Session,
+    *,
+    organization_id: str,
+    pour_request: PourRequest,
+    planned_trips: list[ScheduledTrip],
+    actual_trips: list[Trip],
+    planned_volume: float,
+    actual_volume: float,
+    planned_trip_count: int,
+    actual_trip_count: int,
+) -> dict[str, Any]:
+    if not planned_trips:
+        return {
+            "updated": False,
+            "reason": "missing_planned_trips",
+            "score_weights": _load_scheduler_score_weights(db, organization_id),
+        }
+
+    actual_cycle_samples: list[float] = []
+    for item in actual_trips:
+        started_at = _as_naive_utc(item.started_at)
+        ended_at = _as_naive_utc(item.ended_at)
+        if started_at and ended_at and ended_at > started_at:
+            actual_cycle_samples.append((ended_at - started_at).total_seconds() / 60)
+
+    if not actual_cycle_samples:
+        return {
+            "updated": False,
+            "reason": "missing_actual_cycle_data",
+            "score_weights": _load_scheduler_score_weights(db, organization_id),
+        }
+
+    estimated_cycle_samples = [
+        max(_as_float(item.cycle_minutes, default=0), 0)
+        for item in planned_trips
+        if _as_float(item.cycle_minutes, default=0) > 0
+    ]
+    estimated_avg_cycle = (
+        sum(estimated_cycle_samples) / len(estimated_cycle_samples)
+        if estimated_cycle_samples
+        else 90.0
+    )
+    actual_avg_cycle = sum(actual_cycle_samples) / len(actual_cycle_samples)
+
+    plant_id = str(planned_trips[0].assigned_plant_id or pour_request.assigned_plant_id or "") or None
+    site_id = str(pour_request.site_id or "") or None
+    route_key = _route_key(plant_id, site_id)
+
+    estimate = (
+        db.execute(
+            select(TravelEstimate)
+            .where(TravelEstimate.organization_id == organization_id)
+            .where(TravelEstimate.route_key == route_key)
+            .order_by(TravelEstimate.updated_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+    previous_estimated_minutes = _as_float(
+        estimate.estimated_minutes if estimate else estimated_avg_cycle,
+        default=estimated_avg_cycle,
+    )
+    updated_estimated_minutes = max(30, int(round(previous_estimated_minutes * 0.7 + actual_avg_cycle * 0.3)))
+
+    actual_distance_samples = [
+        max(_as_float(item.actual_distance_km, default=0), 0)
+        for item in actual_trips
+        if _as_float(item.actual_distance_km, default=0) > 0
+    ]
+    updated_distance_km = (
+        sum(actual_distance_samples) / len(actual_distance_samples)
+        if actual_distance_samples
+        else None
+    )
+
+    now = _as_naive_utc(_utcnow())
+    if estimate is None:
+        estimate = TravelEstimate(
+            organization_id=organization_id,
+            plant_id=plant_id,
+            site_id=site_id,
+            route_key=route_key,
+            estimated_minutes=updated_estimated_minutes,
+            source="learning_loop",
+            confidence_pct=65,
+            cached_until=(now + timedelta(hours=12)) if now else None,
+        )
+        if updated_distance_km is not None:
+            estimate.distance_km = round(updated_distance_km, 3)
+        db.add(estimate)
+    else:
+        estimate.estimated_minutes = updated_estimated_minutes
+        estimate.source = "learning_loop"
+        estimate.confidence_pct = _clamp(_as_float(estimate.confidence_pct, default=55) + 5, 30, 95)
+        estimate.cached_until = (now + timedelta(hours=12)) if now else None
+        if updated_distance_km is not None:
+            estimate.distance_km = round(updated_distance_km, 3)
+
+    score_weights = _load_scheduler_score_weights(db, organization_id)
+    cycle_error_ratio = abs(actual_avg_cycle - previous_estimated_minutes) / max(previous_estimated_minutes, 1)
+    volume_error_ratio = abs(actual_volume - planned_volume) / max(planned_volume, 1)
+    trip_error_ratio = abs(actual_trip_count - planned_trip_count) / max(planned_trip_count, 1)
+
+    score_weights["delay_weight"] = _clamp(score_weights["delay_weight"] + cycle_error_ratio * 0.25, 0.5, 3.0)
+    score_weights["empty_km_weight"] = _clamp(score_weights["empty_km_weight"] + volume_error_ratio * 0.2, 0.3, 2.5)
+    score_weights["utilization_weight"] = _clamp(score_weights["utilization_weight"] + trip_error_ratio * 0.2, 0.3, 2.5)
+    persisted_weights = _save_scheduler_score_weights(db, organization_id, score_weights)
+
+    return {
+        "updated": True,
+        "route_estimate": {
+            "route_key": route_key,
+            "previous_estimated_minutes": round(previous_estimated_minutes, 2),
+            "updated_estimated_minutes": float(updated_estimated_minutes),
+            "actual_avg_cycle_minutes": round(actual_avg_cycle, 2),
+            "source": "learning_loop",
+        },
+        "score_weights": persisted_weights,
+    }
+
+
 def reconcile_pour_request(
     db: Session,
     organization_id: str,
@@ -1093,21 +1569,18 @@ def reconcile_pour_request(
         .scalars()
         .all()
     )
+    trip_rows = (
+        db.execute(select(Trip).where(Trip.pour_request_id == pour_request_id)).scalars().all()
+    )
 
     planned_volume = sum(_as_float(item.planned_volume_m3) for item in planned_trips)
     planned_trip_count = len(planned_trips)
 
     if actual_volume_m3 is None:
-        trip_rows = (
-            db.execute(select(Trip).where(Trip.pour_request_id == pour_request_id)).scalars().all()
-        )
         actual_volume_m3 = sum(_as_float(item.actual_volume_m3) for item in trip_rows)
 
     if actual_trip_count is None:
-        actual_trip_count = (
-            db.execute(select(Trip).where(Trip.pour_request_id == pour_request_id)).scalars().all()
-            and len(db.execute(select(Trip).where(Trip.pour_request_id == pour_request_id)).scalars().all())
-        ) or 0
+        actual_trip_count = len(trip_rows)
 
     record = ReconciliationRecord(
         organization_id=organization_id,
@@ -1126,12 +1599,28 @@ def reconcile_pour_request(
     )
     db.add(record)
 
+    learning_loop = _apply_learning_loop(
+        db,
+        organization_id=organization_id,
+        pour_request=pour_request,
+        planned_trips=planned_trips,
+        actual_trips=trip_rows,
+        planned_volume=planned_volume,
+        actual_volume=float(actual_volume_m3 or 0),
+        planned_trip_count=planned_trip_count,
+        actual_trip_count=int(actual_trip_count or 0),
+    )
+
     pour_request.status = "reconciled"
     if dispatch_order:
         dispatch_order.status = "reconciled"
 
     db.commit()
-    return {"reconciliation": serialize_instance(record)}
+    db.refresh(record)
+    return {
+        "reconciliation": serialize_instance(record),
+        "learning_loop": learning_loop,
+    }
 
 
 def generate_daily_kpi(

@@ -81,7 +81,7 @@ export default function ImportPage() {
       <form className="space-y-3 rounded border border-slate-200 bg-white p-4" onSubmit={handleImport}>
         <div className="grid gap-3 md:grid-cols-2">
           <select
-            className="rounded border border-slate-300 px-3 py-2"
+            className="ta-input"
             onChange={(event) => {
               setResource(event.target.value as (typeof options)[number]["value"]);
               setPreview(null);

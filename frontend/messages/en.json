@@ -1,4 +1,6 @@
 {
-  "app.title": "BetonFlow",
-  "app.welcome": "Ready-mix operations platform is ready"
+  "app": {
+    "title": "BetonFlow",
+    "welcome": "Ready-mix operations platform is ready"
+  }
 }

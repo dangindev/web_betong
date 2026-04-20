@@ -184,13 +184,13 @@ export default function PumpCrewMobilePage() {
 
       <div className="grid gap-2 md:grid-cols-2">
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
         <input
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="ta-input"
           placeholder="Mã thiết bị (device_id)"
           value={deviceId}
           onChange={(event) => setDeviceId(event.target.value)}
@@ -198,18 +198,18 @@ export default function PumpCrewMobilePage() {
       </div>
 
       <input
-        className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+        className="ta-input"
         placeholder="Chữ ký (tên/văn bản)"
         value={signature}
         onChange={(event) => setSignature(event.target.value)}
       />
 
       <div className="flex items-center gap-2">
-        <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800" onClick={() => void load()}>
+        <button className="ta-button" onClick={() => void load()}>
           Làm mới phiên bơm
         </button>
         <button
-          className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-60"
+          className="ta-button-primary"
           disabled={offlineQueue.length === 0}
           onClick={() => void syncOfflineQueue()}
         >
@@ -235,7 +235,7 @@ export default function PumpCrewMobilePage() {
                 {nextEvent ? (
                   <button
                     disabled={busySessionId === sessionId}
-                    className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-60"
+                    className="ta-button-secondary h-8 px-3 text-xs"
                     onClick={() => void emitNextEvent(session)}
                   >
                     Gửi sự kiện tiếp theo: {pumpEventLabel(nextEvent)}

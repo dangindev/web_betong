@@ -15,10 +15,14 @@ from app.application.costing import (
     create_unit_cost_snapshot,
     get_allocation_run,
     get_unit_cost_variance_preview,
+    list_bi_materialized_views,
     list_margin_snapshots,
     list_production_logs,
     list_unit_cost_snapshots,
+    record_batch_ticket_actuals,
+    refresh_bi_materialized_views,
     run_allocation,
+    summarize_batch_ticket_variance,
 )
 from app.core.dependencies import get_current_user, user_has_permission
 from app.domain.models import User
@@ -75,6 +79,20 @@ class RunAllocationRequest(BaseModel):
     note: str | None = None
 
 
+class BatchTicketComponentActualPayload(BaseModel):
+    material_id: str
+    target_qty: float
+    actual_qty: float
+
+
+class BatchTicketActualsRequest(BaseModel):
+    organization_id: str
+    period_id: str
+    batch_ticket_id: str
+    components: list[BatchTicketComponentActualPayload]
+    note: str | None = None
+
+
 class UnitCostSnapshotCreateRequest(BaseModel):
     organization_id: str
     period_id: str
@@ -105,6 +123,10 @@ def _has_any_permission(db: Session, user: User, modules: list[str], action: str
             if user_has_permission(db, user.id, module, "write"):
                 return True
     return False
+
+class BiMaterializedViewRefreshRequest(BaseModel):
+    organization_id: str
+
 
 
 def _ensure_costing_permission(db: Session, user: User, action: str) -> None:
@@ -170,6 +192,44 @@ def get_phase5_production_logs(
             limit=limit,
         )
     }
+
+
+@router.post("/batch-tickets/actuals")
+def record_phase5_batch_ticket_actuals(
+    payload: BatchTicketActualsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    _ensure_costing_permission(db, current_user, "write")
+    try:
+        return record_batch_ticket_actuals(
+            db,
+            organization_id=payload.organization_id,
+            period_id=payload.period_id,
+            batch_ticket_id=payload.batch_ticket_id,
+            components=[item.model_dump() for item in payload.components],
+            note=payload.note,
+        )
+    except ValueError as exc:
+        _raise_service_error(exc)
+
+
+@router.get("/batch-ticket-variance")
+def get_phase5_batch_ticket_variance(
+    organization_id: str = Query(...),
+    period_id: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    _ensure_costing_permission(db, current_user, "read")
+    try:
+        return summarize_batch_ticket_variance(
+            db,
+            organization_id=organization_id,
+            period_id=period_id,
+        )
+    except ValueError as exc:
+        _raise_service_error(exc)
 
 
 @router.post("/cost-pools")
@@ -361,3 +421,38 @@ def get_phase5_margin_snapshots(
             limit=limit,
         )
     }
+
+
+@router.post("/bi/materialized-views/refresh")
+def refresh_phase5_bi_materialized_views(
+    payload: BiMaterializedViewRefreshRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    _ensure_costing_permission(db, current_user, "write")
+    try:
+        return refresh_bi_materialized_views(
+            db,
+            organization_id=payload.organization_id,
+        )
+    except ValueError as exc:
+        _raise_service_error(exc)
+
+
+@router.get("/bi/materialized-views")
+def get_phase5_bi_materialized_views(
+    organization_id: str = Query(...),
+    period_id: str | None = Query(default=None),
+    customer_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    _ensure_costing_permission(db, current_user, "read")
+    return list_bi_materialized_views(
+        db,
+        organization_id=organization_id,
+        period_id=period_id,
+        customer_id=customer_id,
+        limit=limit,
+    )

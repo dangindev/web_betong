@@ -1,4 +1,6 @@
 {
-  "app.title": "BetonFlow",
-  "app.welcome": "Nền tảng điều phối và vận hành bê tông đã sẵn sàng"
+  "app": {
+    "title": "BetonFlow",
+    "welcome": "Nền tảng điều phối và vận hành bê tông đã sẵn sàng"
+  }
 }
