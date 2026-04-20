@@ -841,6 +841,228 @@ class DailyKpiSnapshot(TimestampMixin, Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class Warehouse(TimestampMixin, Base):
+    __tablename__ = "warehouses"
+    __table_args__ = (UniqueConstraint("organization_id", "code", name="uq_warehouses_org_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    business_unit_id: Mapped[str | None] = mapped_column(ForeignKey("business_units.id"))
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str | None] = mapped_column(String(500))
+    manager_name: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class CostCenter(TimestampMixin, Base):
+    __tablename__ = "cost_centers"
+    __table_args__ = (UniqueConstraint("organization_id", "code", name="uq_cost_centers_org_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("cost_centers.id"))
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    center_type: Mapped[str | None] = mapped_column(String(64))
+    level_no: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class CostObject(TimestampMixin, Base):
+    __tablename__ = "cost_objects"
+    __table_args__ = (UniqueConstraint("organization_id", "code", name="uq_cost_objects_org_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    cost_center_id: Mapped[str | None] = mapped_column(ForeignKey("cost_centers.id"))
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_type: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class CostPeriod(TimestampMixin, Base):
+    __tablename__ = "cost_periods"
+    __table_args__ = (UniqueConstraint("organization_id", "period_code", name="uq_cost_periods_org_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    period_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    start_date: Mapped[datetime | None] = mapped_column(Date)
+    end_date: Mapped[datetime | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    preclose_check_json: Mapped[dict | list | None] = mapped_column(JSON)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opened_by: Mapped[str | None] = mapped_column(String(36))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[str | None] = mapped_column(String(36))
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reopened_by: Mapped[str | None] = mapped_column(String(36))
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class ProductionLog(TimestampMixin, Base):
+    __tablename__ = "production_logs"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    period_id: Mapped[str | None] = mapped_column(ForeignKey("cost_periods.id"))
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    shift_date: Mapped[datetime | None] = mapped_column(Date)
+    log_type: Mapped[str] = mapped_column(String(32), default="batching")
+    production_line: Mapped[str | None] = mapped_column(String(64))
+    material_id: Mapped[str | None] = mapped_column(ForeignKey("materials.id"))
+    concrete_product_id: Mapped[str | None] = mapped_column(ForeignKey("concrete_products.id"))
+    input_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    output_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    runtime_minutes: Mapped[int | None] = mapped_column(Integer)
+    downtime_minutes: Mapped[int | None] = mapped_column(Integer)
+    electricity_kwh: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    labor_hours: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    maintenance_cost: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    note: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="posted")
+
+
+class CostPool(TimestampMixin, Base):
+    __tablename__ = "cost_pools"
+    __table_args__ = (UniqueConstraint("organization_id", "period_id", "pool_code", name="uq_cost_pools_period_code"),)
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    period_id: Mapped[str] = mapped_column(ForeignKey("cost_periods.id"), nullable=False)
+    pool_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    pool_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    cost_type: Mapped[str | None] = mapped_column(String(64))
+    amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    source_reference: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class AllocationRule(TimestampMixin, Base):
+    __tablename__ = "allocation_rules"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    period_id: Mapped[str] = mapped_column(ForeignKey("cost_periods.id"), nullable=False)
+    pool_id: Mapped[str] = mapped_column(ForeignKey("cost_pools.id"), nullable=False)
+    cost_center_id: Mapped[str | None] = mapped_column(ForeignKey("cost_centers.id"))
+    cost_object_id: Mapped[str | None] = mapped_column(ForeignKey("cost_objects.id"))
+    basis_type: Mapped[str] = mapped_column(String(32), default="manual_ratio")
+    ratio_value: Mapped[float | None] = mapped_column(Numeric(18, 6))
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class AllocationRun(TimestampMixin, Base):
+    __tablename__ = "allocation_runs"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    period_id: Mapped[str] = mapped_column(ForeignKey("cost_periods.id"), nullable=False)
+    run_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="running")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    summary_json: Mapped[dict | list | None] = mapped_column(JSON)
+    run_by: Mapped[str | None] = mapped_column(String(36))
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class AllocationResult(TimestampMixin, Base):
+    __tablename__ = "allocation_results"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    allocation_run_id: Mapped[str] = mapped_column(ForeignKey("allocation_runs.id"), nullable=False)
+    pool_id: Mapped[str | None] = mapped_column(ForeignKey("cost_pools.id"))
+    rule_id: Mapped[str | None] = mapped_column(ForeignKey("allocation_rules.id"))
+    cost_center_id: Mapped[str | None] = mapped_column(ForeignKey("cost_centers.id"))
+    cost_object_id: Mapped[str | None] = mapped_column(ForeignKey("cost_objects.id"))
+    basis_type: Mapped[str | None] = mapped_column(String(32))
+    basis_value: Mapped[float | None] = mapped_column(Numeric(18, 6))
+    allocated_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    detail_json: Mapped[dict | list | None] = mapped_column(JSON)
+
+
+class UnitCostSnapshot(TimestampMixin, Base):
+    __tablename__ = "unit_cost_snapshots"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    period_id: Mapped[str] = mapped_column(ForeignKey("cost_periods.id"), nullable=False)
+    concrete_product_id: Mapped[str | None] = mapped_column(ForeignKey("concrete_products.id"))
+    snapshot_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_volume_m3: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
+    total_cost: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    unit_cost: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    source_run_id: Mapped[str | None] = mapped_column(ForeignKey("allocation_runs.id"))
+    snapshot_json: Mapped[dict | list | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[str | None] = mapped_column(String(36))
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class MarginSnapshot(TimestampMixin, Base):
+    __tablename__ = "margin_snapshots"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    period_id: Mapped[str] = mapped_column(ForeignKey("cost_periods.id"), nullable=False)
+    snapshot_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    sales_order_id: Mapped[str | None] = mapped_column(ForeignKey("sales_orders.id"))
+    customer_id: Mapped[str | None] = mapped_column(ForeignKey("customers.id"))
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("project_sites.id"))
+    concrete_product_id: Mapped[str | None] = mapped_column(ForeignKey("concrete_products.id"))
+    delivered_volume_m3: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    revenue_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    cost_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    margin_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    margin_pct: Mapped[float | None] = mapped_column(Numeric(8, 3))
+    snapshot_json: Mapped[dict | list | None] = mapped_column(JSON)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    generated_by: Mapped[str | None] = mapped_column(String(36))
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class InventoryLedgerEntry(TimestampMixin, Base):
+    __tablename__ = "inventory_ledger_entries"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    business_unit_id: Mapped[str | None] = mapped_column(ForeignKey("business_units.id"))
+    plant_id: Mapped[str | None] = mapped_column(ForeignKey("plants.id"))
+    warehouse_id: Mapped[str] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
+    material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"), nullable=False)
+    movement_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity_in: Mapped[float | None] = mapped_column(Numeric(18, 3), default=0)
+    quantity_out: Mapped[float | None] = mapped_column(Numeric(18, 3), default=0)
+    unit_cost: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    total_cost: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    reference_no: Mapped[str | None] = mapped_column(String(64))
+    source_document_type: Mapped[str | None] = mapped_column(String(64))
+    source_document_id: Mapped[str | None] = mapped_column(String(36))
+    note: Mapped[str | None] = mapped_column(Text)
+    transaction_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    period_id: Mapped[str | None] = mapped_column(ForeignKey("cost_periods.id"))
+    created_by: Mapped[str | None] = mapped_column(String(36))
+    balance_after_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+
+
+class InventoryStockTake(TimestampMixin, Base):
+    __tablename__ = "inventory_stock_takes"
+
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    warehouse_id: Mapped[str] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
+    material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"), nullable=False)
+    stock_take_date: Mapped[datetime | None] = mapped_column(Date)
+    counted_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
+    system_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    variance_qty: Mapped[float | None] = mapped_column(Numeric(18, 3))
+    unit_cost: Mapped[float | None] = mapped_column(Numeric(18, 2))
+    note: Mapped[str | None] = mapped_column(Text)
+    period_id: Mapped[str | None] = mapped_column(ForeignKey("cost_periods.id"))
+    status: Mapped[str] = mapped_column(String(32), default="posted")
+    posted_by: Mapped[str | None] = mapped_column(String(36))
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class SystemSetting(TimestampMixin, Base):
     __tablename__ = "system_settings"
 

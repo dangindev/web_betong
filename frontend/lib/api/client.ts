@@ -1,3 +1,5 @@
+import { useAuthStore } from "../store/auth-store";
+
 function getApiBaseUrl(): string {
   const envBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (envBaseUrl) {
@@ -28,6 +30,82 @@ function getApiBaseUrl(): string {
 }
 
 const API_BASE_URL = getApiBaseUrl();
+
+let refreshingAccessTokenPromise: Promise<string | null> | null = null;
+
+function redirectToLogin(): void {
+  if (typeof window !== "undefined" && window.location.pathname !== "/dang-nhap") {
+    window.location.href = "/dang-nhap";
+  }
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshingAccessTokenPromise) {
+    return refreshingAccessTokenPromise;
+  }
+
+  const { refreshToken, user, setAuth, clearAuth } = useAuthStore.getState();
+  if (!refreshToken) {
+    clearAuth();
+    redirectToLogin();
+    return null;
+  }
+
+  refreshingAccessTokenPromise = (async () => {
+    try {
+      const refreshed = await apiRefresh(refreshToken);
+      let nextUser = user;
+      try {
+        nextUser = await apiMe(refreshed.access_token);
+      } catch {
+        nextUser = user;
+      }
+
+      setAuth({
+        accessToken: refreshed.access_token,
+        refreshToken: refreshed.refresh_token,
+        user: nextUser
+      });
+
+      return refreshed.access_token;
+    } catch {
+      clearAuth();
+      redirectToLogin();
+      return null;
+    } finally {
+      refreshingAccessTokenPromise = null;
+    }
+  })();
+
+  return refreshingAccessTokenPromise;
+}
+
+function withAuthorizationHeader(headers: HeadersInit | undefined, accessToken: string): Headers {
+  const merged = new Headers(headers ?? {});
+  merged.set("Authorization", `Bearer ${accessToken}`);
+  return merged;
+}
+
+async function fetchWithAccessTokenRetry(url: string, accessToken: string, init?: RequestInit): Promise<Response> {
+  const execute = (token: string) =>
+    fetch(url, {
+      ...init,
+      headers: withAuthorizationHeader(init?.headers, token)
+    });
+
+  let response = await execute(accessToken);
+  if (response.status !== 401) {
+    return response;
+  }
+
+  const refreshedAccessToken = await refreshAccessToken();
+  if (!refreshedAccessToken) {
+    return response;
+  }
+
+  response = await execute(refreshedAccessToken);
+  return response;
+}
 
 export type LoginPayload = {
   username: string;
@@ -224,14 +302,12 @@ export async function apiListResource<T>(
   accessToken: string,
   params?: { skip?: number; limit?: number }
 ): Promise<{ items: T[]; total: number }> {
-  const response = await fetch(
+  const response = await fetchWithAccessTokenRetry(
     buildUrl(`/api/v1/resources/${resource}`, {
       skip: params?.skip,
       limit: params?.limit
     }),
-    {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    }
+    accessToken
   );
 
   return parseResponse<{ items: T[]; total: number }>(response);
@@ -242,11 +318,10 @@ export async function apiCreateResource<T>(
   payload: Record<string, unknown>,
   accessToken: string
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/resources/${resource}`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/resources/${resource}`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -260,11 +335,10 @@ export async function apiUpdateResource<T>(
   payload: Record<string, unknown>,
   accessToken: string
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/resources/${resource}/${itemId}`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/resources/${resource}/${itemId}`, accessToken, {
     method: "PATCH",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -273,11 +347,8 @@ export async function apiUpdateResource<T>(
 }
 
 export async function apiDeleteResource(resource: string, itemId: string, accessToken: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/resources/${resource}/${itemId}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/resources/${resource}/${itemId}`, accessToken, {
+    method: "DELETE"
   });
 
   await parseResponse<{ status: string }>(response);
@@ -292,13 +363,11 @@ export async function apiImportResource(
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(
+  const response = await fetchWithAccessTokenRetry(
     buildUrl(`/api/v1/io/import/${resource}`, { dry_run: options?.dryRun ?? false }),
+    accessToken,
     {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      },
       body: formData
     }
   );
@@ -321,11 +390,8 @@ export async function apiUploadAttachment(params: {
   formData.append("entity_id", params.entityId);
   formData.append("file", params.file);
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/attachments/upload`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/attachments/upload`, params.accessToken, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.accessToken}`
-    },
     body: formData
   });
 
@@ -336,11 +402,10 @@ export async function apiGeocode(
   address: string,
   accessToken: string
 ): Promise<{ address: string; latitude: number; longitude: number; source: string }> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/geocode`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/geocode`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ address })
   });
@@ -352,11 +417,10 @@ export async function apiPricingPreview(
   payload: PricingPreviewPayload,
   accessToken: string
 ): Promise<PricingPreviewResult> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/pricing/preview`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/pricing/preview`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -376,11 +440,10 @@ export async function apiConfirmQuotation(
   },
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/pricing/quotations/${quotationId}/confirm`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/pricing/quotations/${quotationId}/confirm`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -398,11 +461,10 @@ export async function apiSetQuotationApproval(
   },
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/pricing/quotations/${quotationId}/approval`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/pricing/quotations/${quotationId}/approval`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -446,11 +508,10 @@ export async function apiDispatchApproval(
   payload: DispatchApprovalPayload,
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/pour-requests/${pourRequestId}/approval`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/pour-requests/${pourRequestId}/approval`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -462,11 +523,10 @@ export async function apiCreateScheduleRun(
   payload: DispatchScheduleRunPayload,
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/schedule-runs`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/schedule-runs`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -478,11 +538,7 @@ export async function apiGetScheduleRun(
   scheduleRunId: string,
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/schedule-runs/${scheduleRunId}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/schedule-runs/${scheduleRunId}`, accessToken);
 
   return parseResponse<Record<string, unknown>>(response);
 }
@@ -491,11 +547,10 @@ export async function apiGetScheduleRunConflicts(
   scheduleRunId: string,
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/schedule-runs/${scheduleRunId}/conflicts`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
+  const response = await fetchWithAccessTokenRetry(
+    `${API_BASE_URL}/api/v1/dispatch/schedule-runs/${scheduleRunId}/conflicts`,
+    accessToken
+  );
 
   return parseResponse<Record<string, unknown>>(response);
 }
@@ -509,11 +564,10 @@ export async function apiOverrideScheduledTrip(
   },
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/scheduled-trips/${scheduledTripId}/override`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/scheduled-trips/${scheduledTripId}/override`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -526,11 +580,10 @@ export async function apiPostTripEvent(
   payload: DispatchEventPayload,
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/trips/${tripId}/events`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/trips/${tripId}/events`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -543,11 +596,10 @@ export async function apiPostPumpEvent(
   payload: DispatchEventPayload,
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/pump-sessions/${pumpSessionId}/events`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/pump-sessions/${pumpSessionId}/events`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -563,11 +615,10 @@ export async function apiPostOfflineSync(
   },
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/offline-sync`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/offline-sync`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -586,11 +637,10 @@ export async function apiPostReconciliation(
   },
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/reconciliation/${pourRequestId}`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/reconciliation/${pourRequestId}`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -606,11 +656,10 @@ export async function apiPostKpiSnapshot(
   },
   accessToken: string
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/dispatch/kpi/snapshot`, {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/dispatch/kpi/snapshot`, accessToken, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
@@ -624,4 +673,407 @@ export function apiDispatchRealtimeUrl(organizationId: string): string {
 
 export function apiDispatchReportUrl(organizationId: string, format: "csv" | "pdf" = "csv"): string {
   return `${API_BASE_URL}/api/v1/dispatch/reports/operations?organization_id=${encodeURIComponent(organizationId)}&report_format=${format}`;
+}
+
+export type InventoryMovementPayload = {
+  organization_id: string;
+  movement_type: "receipt" | "issue" | "transfer" | "adjustment" | "waste";
+  warehouse_id: string;
+  destination_warehouse_id?: string;
+  material_id: string;
+  quantity?: number;
+  quantity_delta?: number;
+  unit_cost?: number;
+  reference_no?: string;
+  source_document_type?: string;
+  source_document_id?: string;
+  note?: string;
+  transaction_at?: string;
+  period_id?: string;
+};
+
+export type InventoryStockTakePayload = {
+  organization_id: string;
+  warehouse_id: string;
+  material_id: string;
+  counted_qty: number;
+  unit_cost?: number;
+  note?: string;
+  stock_take_date?: string;
+  period_id?: string;
+};
+
+export type CostPeriodCreatePayload = {
+  organization_id: string;
+  period_code: string;
+  start_date: string;
+  end_date: string;
+  note?: string;
+};
+
+export async function apiInventoryMovement(
+  payload: InventoryMovementPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/inventory/movements`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiInventoryStockTake(
+  payload: InventoryStockTakePayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/inventory/stock-takes`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiInventoryBalances(
+  organizationId: string,
+  accessToken: string,
+  params?: { warehouse_id?: string; material_id?: string }
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/inventory/balances", {
+      organization_id: organizationId,
+      warehouse_id: params?.warehouse_id,
+      material_id: params?.material_id
+    }),
+    accessToken
+  );
+
+  return parseResponse<{ items: Array<Record<string, unknown>> }>(response);
+}
+
+export async function apiInventoryImportReceipts(
+  organizationId: string,
+  file: File,
+  accessToken: string,
+  options?: { dryRun?: boolean }
+): Promise<ImportResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/inventory/import-receipts", {
+      organization_id: organizationId,
+      dry_run: options?.dryRun ?? false
+    }),
+    accessToken,
+    {
+      method: "POST",
+      body: formData
+    }
+  );
+
+  return parseResponse<ImportResult>(response);
+}
+
+export function apiInventorySnapshotUrl(organizationId: string): string {
+  return `${API_BASE_URL}/api/v1/inventory/export-snapshot?organization_id=${encodeURIComponent(organizationId)}`;
+}
+
+export async function apiCreateCostPeriod(
+  payload: CostPeriodCreatePayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/periods`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiCostPeriodAction(
+  periodId: string,
+  action: "open" | "close" | "reopen",
+  payload: { organization_id: string; note?: string },
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/periods/${periodId}/${action}`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiCostPeriodPrecloseChecklist(
+  periodId: string,
+  organizationId: string,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl(`/api/v1/costing/periods/${periodId}/preclose-checklist`, {
+      organization_id: organizationId
+    }),
+    accessToken
+  );
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiUnitCostVariancePreview(
+  organizationId: string,
+  periodId: string,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/unit-cost-variance-preview", {
+      organization_id: organizationId,
+      period_id: periodId
+    }),
+    accessToken
+  );
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export type Phase5ProductionLogPayload = {
+  organization_id: string;
+  period_id?: string;
+  plant_id?: string;
+  shift_date?: string;
+  log_type?: "crushing" | "batching" | "production";
+  production_line?: string;
+  material_id?: string;
+  concrete_product_id?: string;
+  input_qty?: number;
+  output_qty?: number;
+  runtime_minutes?: number;
+  downtime_minutes?: number;
+  electricity_kwh?: number;
+  labor_hours?: number;
+  maintenance_cost?: number;
+  note?: string;
+};
+
+export type Phase5CostPoolPayload = {
+  organization_id: string;
+  period_id: string;
+  pool_code: string;
+  pool_name: string;
+  cost_type?: string;
+  amount: number;
+  source_reference?: string;
+  note?: string;
+};
+
+export type Phase5AllocationRulePayload = {
+  organization_id: string;
+  period_id: string;
+  pool_id: string;
+  cost_center_id?: string;
+  cost_object_id?: string;
+  basis_type?: "manual_ratio" | "volume_m3" | "runtime_minutes";
+  ratio_value?: number;
+  priority?: number;
+  note?: string;
+};
+
+export type Phase5RunAllocationPayload = {
+  organization_id: string;
+  period_id: string;
+  note?: string;
+};
+
+export type Phase5UnitCostSnapshotPayload = {
+  organization_id: string;
+  period_id: string;
+  concrete_product_id?: string;
+  source_run_id?: string;
+  output_volume_m3?: number;
+  total_cost?: number;
+  note?: string;
+};
+
+export type Phase5MarginSnapshotPayload = {
+  organization_id: string;
+  period_id: string;
+  sales_order_id?: string;
+  concrete_product_id?: string;
+  delivered_volume_m3?: number;
+  revenue_amount?: number;
+  cost_amount?: number;
+  note?: string;
+};
+
+export async function apiCreateProductionLog(
+  payload: Phase5ProductionLogPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/production-logs`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiListProductionLogs(
+  organizationId: string,
+  accessToken: string,
+  options?: { period_id?: string; plant_id?: string; skip?: number; limit?: number }
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/production-logs", {
+      organization_id: organizationId,
+      period_id: options?.period_id,
+      plant_id: options?.plant_id,
+      skip: options?.skip ?? 0,
+      limit: options?.limit ?? 100
+    }),
+    accessToken
+  );
+
+  return parseResponse<{ items: Array<Record<string, unknown>> }>(response);
+}
+
+export async function apiCreateCostPool(
+  payload: Phase5CostPoolPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/cost-pools`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiCreateAllocationRule(
+  payload: Phase5AllocationRulePayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/allocation-rules`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiRunAllocation(
+  payload: Phase5RunAllocationPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/allocation-runs`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiGetAllocationRun(
+  allocationRunId: string,
+  organizationId: string,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl(`/api/v1/costing/allocation-runs/${allocationRunId}`, {
+      organization_id: organizationId
+    }),
+    accessToken
+  );
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiCreateUnitCostSnapshot(
+  payload: Phase5UnitCostSnapshotPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/unit-cost-snapshots`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiListUnitCostSnapshots(
+  organizationId: string,
+  accessToken: string,
+  options?: { period_id?: string; skip?: number; limit?: number }
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/unit-cost-snapshots", {
+      organization_id: organizationId,
+      period_id: options?.period_id,
+      skip: options?.skip ?? 0,
+      limit: options?.limit ?? 100
+    }),
+    accessToken
+  );
+
+  return parseResponse<{ items: Array<Record<string, unknown>> }>(response);
+}
+
+export async function apiCreateMarginSnapshot(
+  payload: Phase5MarginSnapshotPayload,
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithAccessTokenRetry(`${API_BASE_URL}/api/v1/costing/margin-snapshots`, accessToken, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseResponse<Record<string, unknown>>(response);
+}
+
+export async function apiListMarginSnapshots(
+  organizationId: string,
+  accessToken: string,
+  options?: { period_id?: string; skip?: number; limit?: number }
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const response = await fetchWithAccessTokenRetry(
+    buildUrl("/api/v1/costing/margin-snapshots", {
+      organization_id: organizationId,
+      period_id: options?.period_id,
+      skip: options?.skip ?? 0,
+      limit: options?.limit ?? 100
+    }),
+    accessToken
+  );
+
+  return parseResponse<{ items: Array<Record<string, unknown>> }>(response);
 }

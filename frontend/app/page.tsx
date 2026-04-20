@@ -5,24 +5,27 @@ import { useTranslations } from "next-intl";
 
 import { useAuthStore } from "@/lib/store/auth-store";
 
-const highlights = [
+const metricCards = [
   {
-    title: "Dispatch realtime",
-    description: "Theo dõi trạng thái xe/cần bơm theo từng chuyến với độ trễ thấp.",
+    title: "Điều phối thời gian thực",
+    value: "Trực tuyến",
+    description: "Theo dõi trạng thái xe/cần bơm theo chuyến ngay trên board.",
     icon: Truck,
-    tone: "from-blue-500/15 to-cyan-500/15"
+    tone: "bg-brand-50 text-brand-700"
   },
   {
-    title: "Execution timeline",
-    description: "Bám sát tiến độ từ check-in trạm đến return plant với state machine rõ ràng.",
+    title: "Nhật ký thực thi",
+    value: "Theo dõi",
+    description: "Chuỗi trạng thái trip/pump được ghi nhận từ plant đến site.",
     icon: CalendarClock,
-    tone: "from-emerald-500/15 to-teal-500/15"
+    tone: "bg-success-50 text-success-700"
   },
   {
-    title: "KPI snapshot",
-    description: "Tổng hợp hiệu suất vận hành, cycle time và utilization cuối ca.",
+    title: "Ảnh chụp KPI",
+    value: "Hằng ngày",
+    description: "Snapshot hiệu suất vận hành và reconciliation cuối ca.",
     icon: BarChart3,
-    tone: "from-violet-500/15 to-indigo-500/15"
+    tone: "bg-violet-50 text-violet-700"
   }
 ] as const;
 
@@ -32,40 +35,36 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-r from-blue-600 to-cyan-500 p-6 text-white shadow-xl shadow-blue-300/30">
-        <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-white/20 blur-2xl" />
-        <div className="pointer-events-none absolute -bottom-20 left-1/3 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
-
-        <div className="relative">
-          <p className="inline-flex items-center gap-2 rounded-full bg-white/20 px-3 py-1 text-xs font-medium">
+      <section className="ta-card overflow-hidden">
+        <div className="bg-gradient-to-r from-brand-500 to-brand-700 p-6 text-white">
+          <p className="inline-flex items-center gap-2 rounded-md bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/90">
             <Activity className="h-3.5 w-3.5" />
-            Operations Pulse
+            Tổng quan vận hành
           </p>
-          <h2 className="mt-3 text-2xl font-semibold sm:text-3xl">{t("app.welcome")}</h2>
-          <p className="mt-2 max-w-2xl text-sm text-blue-50 sm:text-base">
+          <h1 className="mt-3 text-3xl font-semibold">{t("app.welcome")}</h1>
+          <p className="mt-2 max-w-2xl text-sm text-blue-100">
             {user
-              ? `Xin chào ${user.full_name}. Hệ thống đang sẵn sàng cho dispatch, execution mobile và reconciliation.`
-              : "Bạn chưa đăng nhập. Vào trang /login để bắt đầu quản trị điều phối vận hành."}
+              ? `Xin chào ${user.full_name}. Nền tảng đang sẵn sàng cho Kinh doanh, Điều phối, vận hành hiện trường và KPI.`
+              : "Bạn chưa đăng nhập. Vui lòng vào /dang-nhap để bắt đầu phiên làm việc."}
           </p>
         </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        {highlights.map((item) => {
+        {metricCards.map((item) => {
           const Icon = item.icon;
           return (
-            <article
-              key={item.title}
-              className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
-            >
-              <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${item.tone} opacity-0 transition-opacity duration-300 group-hover:opacity-100`} />
-              <div className="relative">
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+            <article key={item.title} className="ta-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-500">{item.title}</p>
+                  <p className="mt-1 text-2xl font-semibold text-gray-900">{item.value}</p>
+                </div>
+                <span className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${item.tone}`}>
                   <Icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-3 text-base font-semibold text-slate-900">{item.title}</h3>
-                <p className="mt-1 text-sm text-slate-600">{item.description}</p>
               </div>
+              <p className="mt-3 text-sm text-gray-600">{item.description}</p>
             </article>
           );
         })}

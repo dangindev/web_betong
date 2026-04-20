@@ -7,6 +7,12 @@ import { useAuthStore } from "@/lib/store/auth-store";
 
 type GenericRow = Record<string, unknown>;
 
+function toShortId(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  return text.length > 16 ? `${text.slice(0, 8)}...${text.slice(-4)}` : text;
+}
+
 export default function DispatchReconciliationPage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const [organizationId, setOrganizationId] = useState("");
@@ -38,7 +44,7 @@ export default function DispatchReconciliationPage() {
         setPourRequestId(String(pourRes.items[0].id));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không tải được dữ liệu reconciliation.");
+      setError(e instanceof Error ? e.message : "Không tải được dữ liệu đối soát.");
     }
   }
 
@@ -48,7 +54,7 @@ export default function DispatchReconciliationPage() {
 
   async function handleReconcile() {
     if (!accessToken || !organizationId || !pourRequestId) {
-      setError("Thiếu access token, organization_id hoặc pour_request_id.");
+      setError("Thiếu phiên đăng nhập, mã tổ chức (organization_id) hoặc mã yêu cầu đổ (pour_request_id).");
       return;
     }
 
@@ -66,28 +72,28 @@ export default function DispatchReconciliationPage() {
         },
         accessToken
       );
-      setMessage(`Đã chốt reconciliation cho pour request ${pourRequestId}.`);
+      setMessage(`Đã chốt đối soát cho yêu cầu ${toShortId(pourRequestId)}.`);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Chốt reconciliation thất bại.");
+      setError(e instanceof Error ? e.message : "Chốt đối soát thất bại.");
     }
   }
 
   if (!accessToken) {
-    return <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Bạn cần đăng nhập để dùng reconciliation screen.</div>;
+    return <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Bạn cần đăng nhập để dùng màn hình đối soát.</div>;
   }
 
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-xl font-semibold">Reconciliation Screen</h2>
-        <p className="text-sm text-slate-600">Chốt actual volume/trip count và reason code cuối ca.</p>
+        <h2 className="text-xl font-semibold">Màn hình đối soát</h2>
+        <p className="text-sm text-slate-600">Chốt khối lượng/chuyến thực tế và mã lý do cuối ca.</p>
       </div>
 
       <div className="grid gap-2 md:grid-cols-3">
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="organization_id"
+          placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
@@ -96,7 +102,7 @@ export default function DispatchReconciliationPage() {
           value={pourRequestId}
           onChange={(event) => setPourRequestId(event.target.value)}
         >
-          <option value="">Select pour_request_id</option>
+          <option value="">Chọn mã yêu cầu đổ (pour_request_id)</option>
           {pourRequests.map((item) => (
             <option key={String(item.id)} value={String(item.id)}>
               {String(item.request_no ?? item.id)}
@@ -104,39 +110,39 @@ export default function DispatchReconciliationPage() {
           ))}
         </select>
         <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800" onClick={() => void load()}>
-          Refresh
+          Làm mới
         </button>
       </div>
 
       <div className="grid gap-2 md:grid-cols-4">
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="actual_volume_m3"
+          placeholder="Khối lượng thực tế (actual_volume_m3)"
           value={actualVolume}
           onChange={(event) => setActualVolume(event.target.value)}
         />
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="actual_trip_count"
+          placeholder="Số chuyến thực tế (actual_trip_count)"
           value={actualTrips}
           onChange={(event) => setActualTrips(event.target.value)}
         />
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="reason_code"
+          placeholder="Mã lý do (reason_code)"
           value={reasonCode}
           onChange={(event) => setReasonCode(event.target.value)}
         />
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="note"
+          placeholder="Ghi chú"
           value={note}
           onChange={(event) => setNote(event.target.value)}
         />
       </div>
 
       <button className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500" onClick={() => void handleReconcile()}>
-        Close reconciliation
+        Chốt đối soát
       </button>
 
       <div className="text-sm">
@@ -148,25 +154,25 @@ export default function DispatchReconciliationPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
             <tr>
-              <th className="px-3 py-2">Pour Request</th>
-              <th className="px-3 py-2">Planned</th>
-              <th className="px-3 py-2">Actual</th>
-              <th className="px-3 py-2">Variance</th>
-              <th className="px-3 py-2">Reason</th>
+              <th className="px-3 py-2">Yêu cầu đổ</th>
+              <th className="px-3 py-2">Kế hoạch</th>
+              <th className="px-3 py-2">Thực tế</th>
+              <th className="px-3 py-2">Chênh lệch</th>
+              <th className="px-3 py-2">Lý do</th>
             </tr>
           </thead>
           <tbody>
             {records.map((row) => (
               <tr key={String(row.id)} className="border-t border-slate-100">
-                <td className="px-3 py-2">{String(row.pour_request_id ?? "-")}</td>
+                <td className="px-3 py-2">{toShortId(row.pour_request_id)}</td>
                 <td className="px-3 py-2">
-                  {String(row.planned_volume_m3 ?? "-")} m3 / {String(row.planned_trip_count ?? "-")} trips
+                  {String(row.planned_volume_m3 ?? "-")} m3 / {String(row.planned_trip_count ?? "-")} chuyến
                 </td>
                 <td className="px-3 py-2">
-                  {String(row.actual_volume_m3 ?? "-")} m3 / {String(row.actual_trip_count ?? "-")} trips
+                  {String(row.actual_volume_m3 ?? "-")} m3 / {String(row.actual_trip_count ?? "-")} chuyến
                 </td>
                 <td className="px-3 py-2">
-                  {String(row.variance_volume_m3 ?? "-")} m3 / {String(row.variance_trip_count ?? "-")} trips
+                  {String(row.variance_volume_m3 ?? "-")} m3 / {String(row.variance_trip_count ?? "-")} chuyến
                 </td>
                 <td className="px-3 py-2">{String(row.reason_code ?? "-")}</td>
               </tr>
@@ -174,7 +180,7 @@ export default function DispatchReconciliationPage() {
             {records.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                  Chưa có dữ liệu reconciliation.
+                  Chưa có dữ liệu đối soát.
                 </td>
               </tr>
             ) : null}

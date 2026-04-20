@@ -34,6 +34,9 @@ ADMIN_RESOURCES = {
 }
 
 
+APPEND_ONLY_RESOURCES = {"inventory_ledger_entries", "inventory_stock_takes", "allocation_results", "unit_cost_snapshots", "margin_snapshots"}
+
+
 
 def _resolve_model(resource: str) -> type:
     model = MODEL_REGISTRY.get(resource)
@@ -149,6 +152,9 @@ def create_resource(
     model = _resolve_model(resource)
     _ensure_permission(db, current_user, resource, "write")
 
+    if resource in APPEND_ONLY_RESOURCES:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Resource chỉ cho phép ghi qua API nghiệp vụ chuyên biệt")
+
     data = _sanitize_payload(model, payload)
     if resource == "users" and "password" in payload and "password_hash" in allowed_columns(model):
         data["password_hash"] = hash_password(str(payload["password"]))
@@ -173,6 +179,9 @@ def update_resource(
 ) -> dict[str, Any]:
     model = _resolve_model(resource)
     _ensure_permission(db, current_user, resource, "write")
+
+    if resource in APPEND_ONLY_RESOURCES:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Resource không cho phép cập nhật trực tiếp")
 
     item = db.get(model, item_id)
     if not item:
@@ -212,6 +221,9 @@ def delete_resource(
 ) -> dict[str, str]:
     model = _resolve_model(resource)
     _ensure_permission(db, current_user, resource, "delete")
+
+    if resource in APPEND_ONLY_RESOURCES:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Resource không cho phép xóa trực tiếp")
 
     item = db.get(model, item_id)
     if not item:

@@ -36,6 +36,32 @@ function saveOfflineQueue(queue: OfflineEvent[]) {
   window.localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
 }
 
+function toShortId(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  return text.length > 16 ? `${text.slice(0, 8)}...${text.slice(-4)}` : text;
+}
+
+const TRIP_EVENT_LABELS: Record<string, string> = {
+  assigned: "Đã phân công",
+  accepted: "Đã nhận chuyến",
+  check_in_plant: "Đã vào trạm",
+  load_start: "Bắt đầu nạp",
+  load_end: "Kết thúc nạp",
+  depart_plant: "Rời trạm",
+  arrive_site: "Đến công trình",
+  pour_start: "Bắt đầu đổ",
+  pour_end: "Kết thúc đổ",
+  leave_site: "Rời công trình",
+  return_plant: "Về trạm"
+};
+
+function tripEventLabel(value: unknown): string {
+  const key = String(value ?? "").trim();
+  if (!key) return "-";
+  return TRIP_EVENT_LABELS[key] ?? key;
+}
+
 export default function DriverMobilePage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const [organizationId, setOrganizationId] = useState("");
@@ -57,7 +83,7 @@ export default function DriverMobilePage() {
         if (firstOrg) setOrganizationId(firstOrg);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không tải được danh sách trip.");
+      setError(e instanceof Error ? e.message : "Không tải được danh sách chuyến.");
     }
   }
 
@@ -70,14 +96,14 @@ export default function DriverMobilePage() {
 
   async function emitNextEvent(trip: GenericRow) {
     if (!accessToken || !organizationId) {
-      setError("Thiếu access token hoặc organization_id.");
+      setError("Thiếu phiên đăng nhập hoặc mã tổ chức (organization_id).");
       return;
     }
 
     const tripId = String(trip.id ?? "");
     const nextEvent = nextTripEvent(String(trip.status ?? "assigned"));
     if (!tripId || !nextEvent) {
-      setError("Trip đã hoàn tất hoặc dữ liệu không hợp lệ.");
+      setError("Chuyến đã hoàn tất hoặc dữ liệu không hợp lệ.");
       return;
     }
 
@@ -106,13 +132,13 @@ export default function DriverMobilePage() {
         },
         accessToken
       );
-      setMessage(`Đã gửi event ${queuedEvent.event_type} cho trip ${tripId}.`);
+      setMessage(`Đã gửi sự kiện ${tripEventLabel(queuedEvent.event_type)} cho chuyến ${toShortId(tripId)}.`);
       await load();
     } catch (e) {
       const queue = [...offlineQueue, queuedEvent];
       setOfflineQueue(queue);
       saveOfflineQueue(queue);
-      setError(e instanceof Error ? `${e.message} (đã lưu offline)` : "Lỗi mạng, event đã lưu offline.");
+      setError(e instanceof Error ? `${e.message} (đã lưu offline)` : "Lỗi mạng, sự kiện đã lưu offline.");
     } finally {
       setBusyTripId(null);
     }
@@ -133,34 +159,34 @@ export default function DriverMobilePage() {
       );
       setOfflineQueue([]);
       saveOfflineQueue([]);
-      setMessage("Đã đồng bộ offline queue.");
+      setMessage("Đã đồng bộ hàng đợi offline.");
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Đồng bộ offline queue thất bại.");
+      setError(e instanceof Error ? e.message : "Đồng bộ hàng đợi offline thất bại.");
     }
   }
 
   if (!accessToken) {
-    return <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Bạn cần đăng nhập để dùng Driver mobile.</div>;
+    return <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Bạn cần đăng nhập để dùng giao diện tài xế.</div>;
   }
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
-        <h2 className="text-xl font-semibold">Driver Mobile (PWA MVP)</h2>
-        <p className="text-sm text-slate-600">Nhận/chạy chuyến, gửi event lifecycle, và offline sync khi có mạng.</p>
+        <h2 className="text-xl font-semibold">Giao diện tài xế (PWA MVP)</h2>
+        <p className="text-sm text-slate-600">Nhận/chạy chuyến, gửi sự kiện vòng đời và đồng bộ offline khi có mạng.</p>
       </div>
 
       <div className="grid gap-2 md:grid-cols-2">
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="organization_id"
+          placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="device_id"
+          placeholder="Mã thiết bị (device_id)"
           value={deviceId}
           onChange={(event) => setDeviceId(event.target.value)}
         />
@@ -168,28 +194,28 @@ export default function DriverMobilePage() {
 
       <div className="flex items-center gap-2">
         <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800" onClick={() => void load()}>
-          Refresh trips
+          Làm mới danh sách chuyến
         </button>
         <button
           className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-60"
           disabled={offlineQueue.length === 0}
           onClick={() => void syncOfflineQueue()}
         >
-          Sync offline ({offlineQueue.length})
+          Đồng bộ offline ({offlineQueue.length})
         </button>
       </div>
 
       <div className="space-y-2">
-        {activeTrips.length === 0 ? <div className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Không có trip active.</div> : null}
+        {activeTrips.length === 0 ? <div className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Không có chuyến đang hoạt động.</div> : null}
         {activeTrips.map((trip) => {
           const tripId = String(trip.id ?? "");
           const status = String(trip.status ?? "assigned");
           const nextEvent = nextTripEvent(status);
           return (
             <div key={tripId} className="rounded border border-slate-200 bg-white p-3">
-              <div className="font-medium">Trip {tripId}</div>
+              <div className="font-medium">Chuyến {toShortId(tripId)}</div>
               <div className="text-sm text-slate-600">
-                status {status} · vehicle {String(trip.vehicle_id ?? "-")} · pour_request {String(trip.pour_request_id ?? "-")}
+                trạng thái {tripEventLabel(status)} · xe {toShortId(trip.vehicle_id)} · yêu cầu {toShortId(trip.pour_request_id)}
               </div>
               <div className="mt-2">
                 {nextEvent ? (
@@ -198,10 +224,10 @@ export default function DriverMobilePage() {
                     className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-60"
                     onClick={() => void emitNextEvent(trip)}
                   >
-                    Gửi event tiếp theo: {nextEvent}
+                    Gửi sự kiện tiếp theo: {tripEventLabel(nextEvent)}
                   </button>
                 ) : (
-                  <span className="text-xs text-slate-500">Trip đã hoàn tất.</span>
+                  <span className="text-xs text-slate-500">Chuyến đã hoàn tất.</span>
                 )}
               </div>
             </div>

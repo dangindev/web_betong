@@ -94,10 +94,10 @@ export default function SalesPourRequestsPage() {
         status: "new"
       });
 
-      setMessage(`Quick create thành công: ${pourRequestId}`);
+      setMessage(`Tạo nhanh thành công: ${pourRequestId}`);
       setQuickRequestNo(buildRequestNo());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Quick create thất bại.");
+      setError(e instanceof Error ? e.message : "Tạo nhanh thất bại.");
     } finally {
       setBusy(false);
     }
@@ -132,11 +132,11 @@ export default function SalesPourRequestsPage() {
         status: "new"
       });
 
-      setMessage(`Đã tạo pour request ${requestNo} (${pourRequestId}).`);
+      setMessage(`Đã tạo yêu cầu đổ ${requestNo}.`);
       setRequestNo(buildRequestNo());
       setStep(1);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Tạo pour request thất bại.");
+      setError(e instanceof Error ? e.message : "Tạo yêu cầu đổ thất bại.");
     } finally {
       setBusy(false);
     }
@@ -144,24 +144,24 @@ export default function SalesPourRequestsPage() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Pour Request Wizard (4 bước + Quick Create)</h2>
+      <h2 className="text-xl font-semibold">Wizard yêu cầu đổ (4 bước + tạo nhanh)</h2>
 
-      <div className="rounded border border-slate-200 bg-white p-4 space-y-3">
-        <h3 className="font-semibold">Quick Create</h3>
+      <div className="space-y-3 rounded border border-slate-200 bg-white p-4">
+        <h3 className="font-semibold">Tạo nhanh</h3>
         <div className="grid gap-3 md:grid-cols-4">
-          <input className="rounded border border-slate-300 px-3 py-2" placeholder="organization_id *" value={organizationId} onChange={(e) => setOrganizationId(e.target.value)} />
-          <input className="rounded border border-slate-300 px-3 py-2" placeholder="request_no *" value={quickRequestNo} onChange={(e) => setQuickRequestNo(e.target.value)} />
-          <input className="rounded border border-slate-300 px-3 py-2" placeholder="customer_id *" value={customerId} onChange={(e) => setCustomerId(e.target.value)} />
-          <input className="rounded border border-slate-300 px-3 py-2" placeholder="site_id *" value={siteId} onChange={(e) => setSiteId(e.target.value)} />
-          <input className="rounded border border-slate-300 px-3 py-2" placeholder="concrete_product_id *" value={concreteProductId} onChange={(e) => setConcreteProductId(e.target.value)} />
-          <input className="rounded border border-slate-300 px-3 py-2" placeholder="requested_volume_m3" value={requestedVolumeM3} onChange={(e) => setRequestedVolumeM3(e.target.value)} />
-          <input className="rounded border border-slate-300 px-3 py-2" placeholder="requested_start_at (ISO)" value={windowStartAt} onChange={(e) => setWindowStartAt(e.target.value)} />
-          <input className="rounded border border-slate-300 px-3 py-2" placeholder="requested_end_at (ISO)" value={windowEndAt} onChange={(e) => setWindowEndAt(e.target.value)} />
+          <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mã tổ chức (organization_id) *" value={organizationId} onChange={(e) => setOrganizationId(e.target.value)} />
+          <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mã yêu cầu (request_no) *" value={quickRequestNo} onChange={(e) => setQuickRequestNo(e.target.value)} />
+          <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mã khách hàng (customer_id) *" value={customerId} onChange={(e) => setCustomerId(e.target.value)} />
+          <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mã công trình (site_id) *" value={siteId} onChange={(e) => setSiteId(e.target.value)} />
+          <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mã sản phẩm bê tông (concrete_product_id) *" value={concreteProductId} onChange={(e) => setConcreteProductId(e.target.value)} />
+          <input className="rounded border border-slate-300 px-3 py-2" placeholder="Khối lượng yêu cầu (requested_volume_m3)" value={requestedVolumeM3} onChange={(e) => setRequestedVolumeM3(e.target.value)} />
+          <input className="rounded border border-slate-300 px-3 py-2" placeholder="Bắt đầu yêu cầu (requested_start_at, ISO)" value={windowStartAt} onChange={(e) => setWindowStartAt(e.target.value)} />
+          <input className="rounded border border-slate-300 px-3 py-2" placeholder="Kết thúc yêu cầu (requested_end_at, ISO)" value={windowEndAt} onChange={(e) => setWindowEndAt(e.target.value)} />
         </div>
-        <Button type="button" onClick={handleQuickCreate} disabled={busy}>Quick create</Button>
+        <Button type="button" onClick={handleQuickCreate} disabled={busy}>Tạo nhanh</Button>
       </div>
 
-      <div className="grid gap-2 rounded border border-slate-200 bg-white p-4 md:grid-cols-4 text-sm">
+      <div className="grid gap-2 rounded border border-slate-200 bg-white p-4 text-sm md:grid-cols-4">
         {[1, 2, 3, 4].map((raw) => {
           const wizardStep = raw as WizardStep;
           return (
@@ -171,7 +171,7 @@ export default function SalesPourRequestsPage() {
               className={`rounded border px-3 py-2 text-left ${step === wizardStep ? "border-blue-500 bg-blue-50" : "border-slate-200"}`}
               onClick={() => setStep(wizardStep)}
             >
-              <div className="font-semibold">Step {wizardStep}</div>
+              <div className="font-semibold">Bước {wizardStep}</div>
               <div>
                 {wizardStep === 1 && "Thông tin đơn"}
                 {wizardStep === 2 && "Khối lượng & thời gian"}
@@ -186,33 +186,33 @@ export default function SalesPourRequestsPage() {
       <div className="space-y-3 rounded border border-slate-200 bg-white p-4">
         {step === 1 ? (
           <div className="grid gap-3 md:grid-cols-3">
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="request_no" value={requestNo} onChange={(e) => setRequestNo(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="sales_order_id" value={salesOrderId} onChange={(e) => setSalesOrderId(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="assigned_plant_id" value={assignedPlantId} onChange={(e) => setAssignedPlantId(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mã yêu cầu (request_no)" value={requestNo} onChange={(e) => setRequestNo(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mã đơn bán (sales_order_id)" value={salesOrderId} onChange={(e) => setSalesOrderId(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mã trạm gán (assigned_plant_id)" value={assignedPlantId} onChange={(e) => setAssignedPlantId(e.target.value)} />
           </div>
         ) : null}
 
         {step === 2 ? (
           <div className="grid gap-3 md:grid-cols-3">
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="requested_volume_m3" value={requestedVolumeM3} onChange={(e) => setRequestedVolumeM3(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="requested_date (YYYY-MM-DD)" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="pour_method" value={pourMethod} onChange={(e) => setPourMethod(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="window_start_at (ISO)" value={windowStartAt} onChange={(e) => setWindowStartAt(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="window_end_at (ISO)" value={windowEndAt} onChange={(e) => setWindowEndAt(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Khối lượng yêu cầu (requested_volume_m3)" value={requestedVolumeM3} onChange={(e) => setRequestedVolumeM3(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Ngày yêu cầu (requested_date, YYYY-MM-DD)" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Phương thức đổ (pour_method)" value={pourMethod} onChange={(e) => setPourMethod(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Bắt đầu khung giờ (window_start_at, ISO)" value={windowStartAt} onChange={(e) => setWindowStartAt(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Kết thúc khung giờ (window_end_at, ISO)" value={windowEndAt} onChange={(e) => setWindowEndAt(e.target.value)} />
             <label className="inline-flex items-center gap-2 text-sm">
               <input type="checkbox" checked={requiresPump} onChange={(e) => setRequiresPump(e.target.checked)} />
-              requires_pump
+              Cần bơm
             </label>
           </div>
         ) : null}
 
         {step === 3 ? (
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="expected_pump_type" value={expectedPumpType} onChange={(e) => setExpectedPumpType(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="difficulty_level" value={difficultyLevel} onChange={(e) => setDifficultyLevel(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="site_contact_name" value={siteContactName} onChange={(e) => setSiteContactName(e.target.value)} />
-            <input className="rounded border border-slate-300 px-3 py-2" placeholder="site_contact_phone" value={siteContactPhone} onChange={(e) => setSiteContactPhone(e.target.value)} />
-            <textarea className="rounded border border-slate-300 px-3 py-2 md:col-span-2 h-28" placeholder="special_constraints_json" value={constraintsJson} onChange={(e) => setConstraintsJson(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Loại bơm kỳ vọng (expected_pump_type)" value={expectedPumpType} onChange={(e) => setExpectedPumpType(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Mức độ khó (difficulty_level)" value={difficultyLevel} onChange={(e) => setDifficultyLevel(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Người liên hệ công trình (site_contact_name)" value={siteContactName} onChange={(e) => setSiteContactName(e.target.value)} />
+            <input className="rounded border border-slate-300 px-3 py-2" placeholder="Số điện thoại liên hệ (site_contact_phone)" value={siteContactPhone} onChange={(e) => setSiteContactPhone(e.target.value)} />
+            <textarea className="h-28 rounded border border-slate-300 px-3 py-2 md:col-span-2" placeholder="Ràng buộc đặc biệt (special_constraints_json)" value={constraintsJson} onChange={(e) => setConstraintsJson(e.target.value)} />
           </div>
         ) : null}
 
@@ -248,7 +248,7 @@ export default function SalesPourRequestsPage() {
           {step < 4 ? (
             <Button type="button" onClick={() => setStep((Math.min(4, step + 1) as WizardStep))}>Tiếp theo</Button>
           ) : (
-            <Button type="button" onClick={handleSubmitWizard} disabled={busy}>{busy ? "Đang tạo..." : "Tạo pour request"}</Button>
+            <Button type="button" onClick={handleSubmitWizard} disabled={busy}>{busy ? "Đang tạo..." : "Tạo yêu cầu đổ"}</Button>
           )}
         </div>
       </div>

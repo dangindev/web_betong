@@ -1,6 +1,6 @@
 {
-  "name": "web_betong",
-  "short_name": "web_betong",
+  "name": "BetonFlow",
+  "short_name": "BetonFlow",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

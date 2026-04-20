@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import random
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -1036,3 +1036,786 @@ def test_phase3_reconciliation_and_kpi_snapshot() -> None:
         )
         assert kpi_response.status_code == 200
         assert kpi_response.json()["daily_kpi_snapshot"]["organization_id"] == TEST_ORG_ID
+
+
+def test_phase4_inventory_and_cost_period_workflow() -> None:
+    with TestClient(app) as client:
+        tokens = _login(client, "admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        plants_response = client.get("/api/v1/resources/plants?skip=0&limit=1", headers=headers)
+        assert plants_response.status_code == 200
+        plant_items = plants_response.json()["items"]
+        assert plant_items
+        plant = plant_items[0]
+        organization_id = str(plant["organization_id"])
+        plant_id = str(plant["id"])
+
+        materials_response = client.get("/api/v1/resources/materials?skip=0&limit=1", headers=headers)
+        assert materials_response.status_code == 200
+        material_items = materials_response.json()["items"]
+        if material_items:
+            material_id = str(material_items[0]["id"])
+        else:
+            created_material = client.post(
+                "/api/v1/resources/materials",
+                headers=headers,
+                json={
+                    "organization_id": organization_id,
+                    "code": f"VT-{uuid4().hex[:6].upper()}",
+                    "name": "Xi măng rời",
+                    "material_type": "cement",
+                    "uom": "kg",
+                    "status": "active",
+                },
+            )
+            assert created_material.status_code == 200
+            material_id = str(created_material.json()["id"])
+
+        warehouse_a_response = client.post(
+            "/api/v1/resources/warehouses",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "plant_id": plant_id,
+                "code": f"KHOA-{uuid4().hex[:4].upper()}",
+                "name": "Kho vật tư chính",
+                "status": "active",
+            },
+        )
+        assert warehouse_a_response.status_code == 200
+        warehouse_a_id = str(warehouse_a_response.json()["id"])
+
+        warehouse_b_response = client.post(
+            "/api/v1/resources/warehouses",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "plant_id": plant_id,
+                "code": f"KHOB-{uuid4().hex[:4].upper()}",
+                "name": "Kho vật tư dự phòng",
+                "status": "active",
+            },
+        )
+        assert warehouse_b_response.status_code == 200
+        warehouse_b_id = str(warehouse_b_response.json()["id"])
+
+        center_response = client.post(
+            "/api/v1/resources/cost_centers",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "code": f"CC-{uuid4().hex[:4].upper()}",
+                "name": "Trung tâm chi phí kiểm thử",
+                "level_no": 1,
+                "status": "active",
+            },
+        )
+        assert center_response.status_code == 200
+        center_id = str(center_response.json()["id"])
+
+        object_response = client.post(
+            "/api/v1/resources/cost_objects",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "cost_center_id": center_id,
+                "code": f"OBJ-{uuid4().hex[:4].upper()}",
+                "name": "Đối tượng chi phí kiểm thử",
+                "object_type": "project",
+                "status": "active",
+            },
+        )
+        assert object_response.status_code == 200
+
+        period_code = f"KY-{uuid4().hex[:6].upper()}"
+        period_response = client.post(
+            "/api/v1/costing/periods",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_code": period_code,
+                "start_date": date.today().isoformat(),
+                "end_date": date.today().isoformat(),
+                "note": "Kỳ chi phí cho test phase 4",
+            },
+        )
+        assert period_response.status_code == 200
+        period_id = str(period_response.json()["period"]["id"])
+
+        open_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/open",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert open_response.status_code == 200
+        assert open_response.json()["period"]["status"] == "open"
+
+        receipt_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "receipt",
+                "warehouse_id": warehouse_a_id,
+                "material_id": material_id,
+                "quantity": 100,
+                "unit_cost": 1000,
+                "reference_no": f"PN-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert receipt_response.status_code == 200
+
+        issue_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "issue",
+                "warehouse_id": warehouse_a_id,
+                "material_id": material_id,
+                "quantity": 20,
+                "reference_no": f"PX-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert issue_response.status_code == 200
+
+        transfer_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "transfer",
+                "warehouse_id": warehouse_a_id,
+                "destination_warehouse_id": warehouse_b_id,
+                "material_id": material_id,
+                "quantity": 10,
+                "reference_no": f"CK-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert transfer_response.status_code == 200
+
+        adjustment_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "adjustment",
+                "warehouse_id": warehouse_a_id,
+                "material_id": material_id,
+                "quantity_delta": -5,
+                "reference_no": f"DC-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert adjustment_response.status_code == 200
+
+        over_issue_response = client.post(
+            "/api/v1/inventory/movements",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "movement_type": "issue",
+                "warehouse_id": warehouse_a_id,
+                "material_id": material_id,
+                "quantity": 999999,
+                "reference_no": f"PX-{uuid4().hex[:6].upper()}",
+            },
+        )
+        assert over_issue_response.status_code == 400
+
+        stock_take_response = client.post(
+            "/api/v1/inventory/stock-takes",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "warehouse_id": warehouse_b_id,
+                "material_id": material_id,
+                "counted_qty": 12,
+                "note": "Kiểm kê cuối ca",
+            },
+        )
+        assert stock_take_response.status_code == 200
+        stock_take_id = str(stock_take_response.json()["stock_take"]["id"])
+
+        ledger_resource_response = client.get(
+            "/api/v1/resources/inventory_ledger_entries?skip=0&limit=1",
+            headers=headers,
+        )
+        assert ledger_resource_response.status_code == 200
+        ledger_items = ledger_resource_response.json()["items"]
+        assert ledger_items
+        ledger_entry_id = str(ledger_items[0]["id"])
+
+        patch_ledger_response = client.patch(
+            f"/api/v1/resources/inventory_ledger_entries/{ledger_entry_id}",
+            headers=headers,
+            json={"balance_after_qty": 9999},
+        )
+        assert patch_ledger_response.status_code == 405
+
+        delete_ledger_response = client.delete(
+            f"/api/v1/resources/inventory_ledger_entries/{ledger_entry_id}",
+            headers=headers,
+        )
+        assert delete_ledger_response.status_code == 405
+
+        patch_stock_take_response = client.patch(
+            f"/api/v1/resources/inventory_stock_takes/{stock_take_id}",
+            headers=headers,
+            json={"counted_qty": 9999},
+        )
+        assert patch_stock_take_response.status_code == 405
+
+        delete_stock_take_response = client.delete(
+            f"/api/v1/resources/inventory_stock_takes/{stock_take_id}",
+            headers=headers,
+        )
+        assert delete_stock_take_response.status_code == 405
+
+        balances_response = client.get(
+            f"/api/v1/inventory/balances?organization_id={organization_id}&material_id={material_id}",
+            headers=headers,
+        )
+        assert balances_response.status_code == 200
+        balances = balances_response.json()["items"]
+
+        balance_by_warehouse = {str(item["warehouse_id"]): float(item["available_qty"]) for item in balances}
+        assert round(balance_by_warehouse.get(warehouse_a_id, 0), 3) == 65
+        assert round(balance_by_warehouse.get(warehouse_b_id, 0), 3) == 12
+
+        checklist_response = client.get(
+            f"/api/v1/costing/periods/{period_id}/preclose-checklist?organization_id={organization_id}",
+            headers=headers,
+        )
+        assert checklist_response.status_code == 200
+        assert checklist_response.json()["checklist"]["ready_to_close"] is True
+
+        close_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/close",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert close_response.status_code == 200
+        assert close_response.json()["period"]["status"] == "closed"
+
+        reopen_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/reopen",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert reopen_response.status_code == 200
+        assert reopen_response.json()["period"]["status"] == "open"
+
+        import_csv = (
+            "warehouse_id,material_id,quantity,unit_cost,reference_no\n"
+            f"{warehouse_a_id},{material_id},5,900,PN-IMPORT-001\n"
+        ).encode("utf-8")
+
+        import_preview_response = client.post(
+            f"/api/v1/inventory/import-receipts?organization_id={organization_id}&dry_run=true",
+            headers=headers,
+            files={"file": ("inventory_receipts.csv", import_csv, "text/csv")},
+        )
+        assert import_preview_response.status_code == 200
+        assert import_preview_response.json()["valid_rows"] == 1
+
+        import_apply_response = client.post(
+            f"/api/v1/inventory/import-receipts?organization_id={organization_id}&dry_run=false",
+            headers=headers,
+            files={"file": ("inventory_receipts.csv", import_csv, "text/csv")},
+        )
+        assert import_apply_response.status_code == 200
+        assert import_apply_response.json()["created"] == 1
+
+        export_response = client.get(
+            f"/api/v1/inventory/export-snapshot?organization_id={organization_id}",
+            headers=headers,
+        )
+        assert export_response.status_code == 200
+        assert export_response.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+
+def test_phase5_production_costing_and_margin_workflow() -> None:
+    with TestClient(app) as client:
+        tokens = _login(client, "admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        plants_response = client.get("/api/v1/resources/plants?skip=0&limit=1", headers=headers)
+        assert plants_response.status_code == 200
+        plants = plants_response.json()["items"]
+        assert plants
+
+        plant_id = str(plants[0]["id"])
+        organization_id = str(plants[0]["organization_id"])
+
+        current_period_date = date.today() + timedelta(days=30)
+        previous_period_date = current_period_date - timedelta(days=1)
+
+        previous_period_response = client.post(
+            "/api/v1/costing/periods",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_code": f"P5-PREV-{uuid4().hex[:4].upper()}",
+                "start_date": previous_period_date.isoformat(),
+                "end_date": previous_period_date.isoformat(),
+                "note": "Kỳ trước để so sánh variance",
+            },
+        )
+        assert previous_period_response.status_code == 200
+        previous_period_id = str(previous_period_response.json()["period"]["id"])
+
+        previous_snapshot_response = client.post(
+            "/api/v1/costing/unit-cost-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": previous_period_id,
+                "output_volume_m3": 10,
+                "total_cost": 1000,
+                "note": "Snapshot kỳ trước",
+            },
+        )
+        assert previous_snapshot_response.status_code == 200
+
+        period_code = f"P5-{uuid4().hex[:6].upper()}"
+        create_period_response = client.post(
+            "/api/v1/costing/periods",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_code": period_code,
+                "start_date": current_period_date.isoformat(),
+                "end_date": current_period_date.isoformat(),
+                "note": "Kỳ kiểm thử phase 5",
+            },
+        )
+        assert create_period_response.status_code == 200
+        period_id = str(create_period_response.json()["period"]["id"])
+
+        open_period_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/open",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert open_period_response.status_code == 200
+        assert open_period_response.json()["period"]["status"] == "open"
+
+        production_response = client.post(
+            "/api/v1/costing/production-logs",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "plant_id": plant_id,
+                "shift_date": current_period_date.isoformat(),
+                "log_type": "batching",
+                "output_qty": 45,
+                "runtime_minutes": 360,
+                "electricity_kwh": 120,
+                "note": "phase5 integration test",
+            },
+        )
+        assert production_response.status_code == 200
+
+        pool_response = client.post(
+            "/api/v1/costing/cost-pools",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "pool_code": f"POOL-{uuid4().hex[:4].upper()}",
+                "pool_name": "Overhead test",
+                "cost_type": "overhead",
+                "amount": 1500000,
+            },
+        )
+        assert pool_response.status_code == 200
+        pool_id = str(pool_response.json()["cost_pool"]["id"])
+
+        rule_response = client.post(
+            "/api/v1/costing/allocation-rules",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "pool_id": pool_id,
+                "basis_type": "manual_ratio",
+                "ratio_value": 1,
+                "priority": 100,
+            },
+        )
+        assert rule_response.status_code == 200
+
+        allocation_response = client.post(
+            "/api/v1/costing/allocation-runs",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "note": "run allocation phase 5",
+            },
+        )
+        assert allocation_response.status_code == 200
+        allocation_run_id = str(allocation_response.json()["allocation_run"]["id"])
+        assert allocation_response.json()["results"]
+
+        unit_cost_response = client.post(
+            "/api/v1/costing/unit-cost-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "source_run_id": allocation_run_id,
+            },
+        )
+        assert unit_cost_response.status_code == 200
+        assert float(unit_cost_response.json()["unit_cost_snapshot"]["unit_cost"]) >= 0
+
+        margin_response = client.post(
+            "/api/v1/costing/margin-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "revenue_amount": 2000000,
+                "cost_amount": 1500000,
+                "note": "margin snapshot phase 5",
+            },
+        )
+        assert margin_response.status_code == 200
+        assert float(margin_response.json()["margin_snapshot"]["margin_amount"]) == 500000
+
+        production_list_response = client.get(
+            f"/api/v1/costing/production-logs?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert production_list_response.status_code == 200
+        assert production_list_response.json()["items"]
+
+        unit_cost_list_response = client.get(
+            f"/api/v1/costing/unit-cost-snapshots?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert unit_cost_list_response.status_code == 200
+        assert unit_cost_list_response.json()["items"]
+
+        margin_list_response = client.get(
+            f"/api/v1/costing/margin-snapshots?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert margin_list_response.status_code == 200
+        assert margin_list_response.json()["items"]
+
+        close_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/close",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "note": "close workflow phase 5",
+            },
+        )
+        assert close_response.status_code == 200
+        assert close_response.json()["period"]["status"] == "closed"
+        assert close_response.json()["allocation_run"]
+        assert close_response.json()["unit_cost_snapshot"]
+        assert close_response.json()["unit_cost_snapshot"]["status"] == "frozen"
+
+        variance_preview_response = client.get(
+            f"/api/v1/costing/unit-cost-variance-preview?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert variance_preview_response.status_code == 200
+        variance_payload = variance_preview_response.json()
+        assert variance_payload["current_snapshot"]
+        assert variance_payload["previous_snapshot"]
+        assert variance_payload["variance"]["amount"] is not None
+
+
+def test_phase5_validation_and_guardrails() -> None:
+    with TestClient(app) as client:
+        unauthorized_response = client.get("/api/v1/costing/production-logs?organization_id=org-unauthorized")
+        assert unauthorized_response.status_code == 401
+
+        tokens = _login(client, "admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        plants_response = client.get("/api/v1/resources/plants?skip=0&limit=1", headers=headers)
+        assert plants_response.status_code == 200
+        plants = plants_response.json()["items"]
+        assert plants
+
+        plant_id = str(plants[0]["id"])
+        organization_id = str(plants[0]["organization_id"])
+        period_date = date.today() + timedelta(days=120)
+
+        period_response = client.post(
+            "/api/v1/costing/periods",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_code": f"P5-VAL-{uuid4().hex[:6].upper()}",
+                "start_date": period_date.isoformat(),
+                "end_date": period_date.isoformat(),
+                "note": "Kỳ kiểm thử validation phase 5",
+            },
+        )
+        assert period_response.status_code == 200
+        period_id = str(period_response.json()["period"]["id"])
+
+        close_draft_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/close",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert close_draft_response.status_code == 400
+        assert "đang mở" in str(close_draft_response.json()["detail"])
+
+        open_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/open",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert open_response.status_code == 200
+
+        invalid_log_response = client.post(
+            "/api/v1/costing/production-logs",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "plant_id": plant_id,
+                "shift_date": period_date.isoformat(),
+                "log_type": "invalid_log_type",
+            },
+        )
+        assert invalid_log_response.status_code == 400
+
+        invalid_pool_response = client.post(
+            "/api/v1/costing/cost-pools",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "pool_code": f"POOL-INVALID-{uuid4().hex[:4].upper()}",
+                "pool_name": "Pool invalid",
+                "amount": 0,
+            },
+        )
+        assert invalid_pool_response.status_code == 400
+
+        valid_pool_response = client.post(
+            "/api/v1/costing/cost-pools",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "pool_code": f"POOL-VALID-{uuid4().hex[:4].upper()}",
+                "pool_name": "Pool valid",
+                "amount": 500000,
+            },
+        )
+        assert valid_pool_response.status_code == 200
+        pool_id = str(valid_pool_response.json()["cost_pool"]["id"])
+
+        invalid_rule_response = client.post(
+            "/api/v1/costing/allocation-rules",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "pool_id": pool_id,
+                "basis_type": "invalid_basis",
+            },
+        )
+        assert invalid_rule_response.status_code == 400
+
+        valid_rule_response = client.post(
+            "/api/v1/costing/allocation-rules",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "pool_id": pool_id,
+                "basis_type": "manual_ratio",
+                "ratio_value": 1,
+                "priority": 100,
+            },
+        )
+        assert valid_rule_response.status_code == 200
+
+        invalid_snapshot_response = client.post(
+            "/api/v1/costing/unit-cost-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "source_run_id": str(uuid4()),
+            },
+        )
+        assert invalid_snapshot_response.status_code == 400
+
+        invalid_margin_response = client.post(
+            "/api/v1/costing/margin-snapshots",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_id": period_id,
+                "sales_order_id": str(uuid4()),
+            },
+        )
+        assert invalid_margin_response.status_code == 400
+
+        invalid_run_detail_response = client.get(
+            f"/api/v1/costing/allocation-runs/{uuid4()}?organization_id={organization_id}",
+            headers=headers,
+        )
+        assert invalid_run_detail_response.status_code == 400
+
+        close_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/close",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "note": "Đóng kỳ trong test validation",
+            },
+        )
+        assert close_response.status_code == 200
+        assert close_response.json()["period"]["status"] == "closed"
+        assert close_response.json()["unit_cost_snapshot"]["status"] == "frozen"
+
+        close_again_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/close",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert close_again_response.status_code == 400
+
+        reopen_response = client.post(
+            f"/api/v1/costing/periods/{period_id}/reopen",
+            headers=headers,
+            json={"organization_id": organization_id},
+        )
+        assert reopen_response.status_code == 200
+        assert reopen_response.json()["period"]["status"] == "open"
+
+
+
+def test_phase5_variance_preview_when_current_snapshot_missing() -> None:
+    with TestClient(app) as client:
+        tokens = _login(client, "admin", "Admin@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        plants_response = client.get("/api/v1/resources/plants?skip=0&limit=1", headers=headers)
+        assert plants_response.status_code == 200
+        plants = plants_response.json()["items"]
+        assert plants
+
+        organization_id = str(plants[0]["organization_id"])
+        period_date = date.today() + timedelta(days=210)
+
+        period_response = client.post(
+            "/api/v1/costing/periods",
+            headers=headers,
+            json={
+                "organization_id": organization_id,
+                "period_code": f"P5-NOSNAP-{uuid4().hex[:6].upper()}",
+                "start_date": period_date.isoformat(),
+                "end_date": period_date.isoformat(),
+                "note": "Kỳ không có current snapshot",
+            },
+        )
+        assert period_response.status_code == 200
+        period_id = str(period_response.json()["period"]["id"])
+
+        variance_response = client.get(
+            f"/api/v1/costing/unit-cost-variance-preview?organization_id={organization_id}&period_id={period_id}",
+            headers=headers,
+        )
+        assert variance_response.status_code == 200
+        payload = variance_response.json()
+        assert payload["current_snapshot"] is None
+        assert payload["variance"]["amount"] is None
+        assert payload["variance"]["direction"] == "n/a"
+
+
+
+def test_phase5_permission_denied_for_non_costing_user() -> None:
+    unique_suffix = uuid4().hex[:8]
+
+    db = SessionLocal()
+    try:
+        role = Role(
+            organization_id=TEST_ORG_ID,
+            code=f"P5_LIMIT_{unique_suffix}",
+            name="Phase5 Limited",
+            is_system=False,
+        )
+        db.add(role)
+        db.flush()
+
+        for action in ("read", "write"):
+            permission = _ensure_permission(db, "plants", action)
+            linked = db.execute(
+                select(RolePermission).where(
+                    RolePermission.role_id == role.id,
+                    RolePermission.permission_id == permission.id,
+                )
+            ).scalar_one_or_none()
+            if linked is None:
+                db.add(RolePermission(role_id=role.id, permission_id=permission.id))
+
+        limited_user = User(
+            organization_id=TEST_ORG_ID,
+            username=f"p5_limited_{unique_suffix}",
+            email=f"p5_limited_{unique_suffix}@test.local",
+            password_hash=hash_password("Limited@123"),
+            full_name="Phase5 Limited User",
+            status="active",
+            locale="vi",
+            timezone="Asia/Ho_Chi_Minh",
+        )
+        db.add(limited_user)
+        db.flush()
+
+        db.add(
+            UserRole(
+                user_id=limited_user.id,
+                role_id=role.id,
+                business_unit_id=TEST_BU_MAIN_ID,
+                is_primary=True,
+            )
+        )
+
+        db.commit()
+        limited_username = limited_user.username
+    finally:
+        db.close()
+
+    with TestClient(app) as client:
+        tokens = _login(client, limited_username, "Limited@123")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        production_logs_response = client.get(
+            f"/api/v1/costing/production-logs?organization_id={TEST_ORG_ID}",
+            headers=headers,
+        )
+        assert production_logs_response.status_code == 403
+        assert "phase 5" in str(production_logs_response.json()["detail"]).lower()
+
+        checklist_response = client.get(
+            f"/api/v1/costing/periods/{uuid4()}/preclose-checklist?organization_id={TEST_ORG_ID}",
+            headers=headers,
+        )
+        assert checklist_response.status_code == 403
+        assert "kỳ giá thành" in str(checklist_response.json()["detail"]).lower()
+
+        close_response = client.post(
+            f"/api/v1/costing/periods/{uuid4()}/close",
+            headers=headers,
+            json={"organization_id": TEST_ORG_ID},
+        )
+        assert close_response.status_code == 403
+        assert "kỳ giá thành" in str(close_response.json()["detail"]).lower()

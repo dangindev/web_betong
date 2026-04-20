@@ -9,8 +9,8 @@ import "leaflet/dist/leaflet.css";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "web_betong",
-  description: "Dispatch and costing platform"
+  title: "BetonFlow",
+  description: "Nền tảng điều phối, kinh doanh và giá thành bê tông thương phẩm"
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

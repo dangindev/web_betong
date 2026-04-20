@@ -36,6 +36,27 @@ function saveOfflineQueue(queue: OfflinePumpEvent[]) {
   window.localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
 }
 
+function toShortId(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) return "-";
+  return text.length > 16 ? `${text.slice(0, 8)}...${text.slice(-4)}` : text;
+}
+
+const PUMP_EVENT_LABELS: Record<string, string> = {
+  assigned: "Đã phân công",
+  moving: "Đang di chuyển",
+  setup_start: "Bắt đầu lắp đặt",
+  pump_start: "Bắt đầu bơm",
+  pump_end: "Kết thúc bơm",
+  teardown_end: "Hoàn tất tháo dỡ"
+};
+
+function pumpEventLabel(value: unknown): string {
+  const key = String(value ?? "").trim();
+  if (!key) return "-";
+  return PUMP_EVENT_LABELS[key] ?? key;
+}
+
 export default function PumpCrewMobilePage() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const [organizationId, setOrganizationId] = useState("");
@@ -58,7 +79,7 @@ export default function PumpCrewMobilePage() {
         if (firstOrg) setOrganizationId(firstOrg);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không tải được pump sessions.");
+      setError(e instanceof Error ? e.message : "Không tải được phiên bơm.");
     }
   }
 
@@ -74,7 +95,7 @@ export default function PumpCrewMobilePage() {
 
   async function emitNextEvent(session: GenericRow) {
     if (!accessToken || !organizationId) {
-      setError("Thiếu access token hoặc organization_id.");
+      setError("Thiếu phiên đăng nhập hoặc mã tổ chức (organization_id).");
       return;
     }
 
@@ -82,7 +103,7 @@ export default function PumpCrewMobilePage() {
     const currentStatus = String(session.session_status ?? "assigned");
     const nextEvent = nextPumpEvent(currentStatus);
     if (!sessionId || !nextEvent) {
-      setError("Pump session đã hoàn tất hoặc dữ liệu không hợp lệ.");
+      setError("Phiên bơm đã hoàn tất hoặc dữ liệu không hợp lệ.");
       return;
     }
 
@@ -116,13 +137,13 @@ export default function PumpCrewMobilePage() {
         },
         accessToken
       );
-      setMessage(`Đã gửi event ${queuedEvent.event_type} cho pump session ${sessionId}.`);
+      setMessage(`Đã gửi sự kiện ${pumpEventLabel(queuedEvent.event_type)} cho phiên bơm ${toShortId(sessionId)}.`);
       await load();
     } catch (e) {
       const queue = [...offlineQueue, queuedEvent];
       setOfflineQueue(queue);
       saveOfflineQueue(queue);
-      setError(e instanceof Error ? `${e.message} (đã lưu offline)` : "Lỗi mạng, event đã lưu offline.");
+      setError(e instanceof Error ? `${e.message} (đã lưu offline)` : "Lỗi mạng, sự kiện đã lưu offline.");
     } finally {
       setBusySessionId(null);
     }
@@ -143,34 +164,34 @@ export default function PumpCrewMobilePage() {
       );
       setOfflineQueue([]);
       saveOfflineQueue([]);
-      setMessage("Đã đồng bộ offline queue cho pump crew.");
+      setMessage("Đã đồng bộ hàng đợi offline cho đội bơm.");
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Đồng bộ offline queue thất bại.");
+      setError(e instanceof Error ? e.message : "Đồng bộ hàng đợi offline thất bại.");
     }
   }
 
   if (!accessToken) {
-    return <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Bạn cần đăng nhập để dùng Pump Crew mobile.</div>;
+    return <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">Bạn cần đăng nhập để dùng giao diện đội bơm.</div>;
   }
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
-        <h2 className="text-xl font-semibold">Pump Crew Mobile (PWA MVP)</h2>
-        <p className="text-sm text-slate-600">Theo dõi phiên bơm, xác nhận setup/pump/teardown, signature pad text và offline sync.</p>
+        <h2 className="text-xl font-semibold">Giao diện đội bơm (PWA MVP)</h2>
+        <p className="text-sm text-slate-600">Theo dõi phiên bơm, xác nhận lắp đặt/bơm/tháo dỡ, chữ ký văn bản và đồng bộ offline.</p>
       </div>
 
       <div className="grid gap-2 md:grid-cols-2">
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="organization_id"
+          placeholder="Mã tổ chức (organization_id)"
           value={organizationId}
           onChange={(event) => setOrganizationId(event.target.value)}
         />
         <input
           className="rounded border border-slate-300 px-3 py-2 text-sm"
-          placeholder="device_id"
+          placeholder="Mã thiết bị (device_id)"
           value={deviceId}
           onChange={(event) => setDeviceId(event.target.value)}
         />
@@ -178,27 +199,27 @@ export default function PumpCrewMobilePage() {
 
       <input
         className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-        placeholder="Signature (name/text)"
+        placeholder="Chữ ký (tên/văn bản)"
         value={signature}
         onChange={(event) => setSignature(event.target.value)}
       />
 
       <div className="flex items-center gap-2">
         <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800" onClick={() => void load()}>
-          Refresh sessions
+          Làm mới phiên bơm
         </button>
         <button
           className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-60"
           disabled={offlineQueue.length === 0}
           onClick={() => void syncOfflineQueue()}
         >
-          Sync offline ({offlineQueue.length})
+          Đồng bộ offline ({offlineQueue.length})
         </button>
       </div>
 
       <div className="space-y-2">
         {activeSessions.length === 0 ? (
-          <div className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Không có pump session active.</div>
+          <div className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Không có phiên bơm đang hoạt động.</div>
         ) : null}
         {activeSessions.map((session) => {
           const sessionId = String(session.id ?? "");
@@ -206,9 +227,9 @@ export default function PumpCrewMobilePage() {
           const nextEvent = nextPumpEvent(currentStatus);
           return (
             <div key={sessionId} className="rounded border border-slate-200 bg-white p-3">
-              <div className="font-medium">Pump session {sessionId}</div>
+              <div className="font-medium">Phiên bơm {toShortId(sessionId)}</div>
               <div className="text-sm text-slate-600">
-                status {currentStatus} · pump {String(session.pump_id ?? "-")} · trip {String(session.trip_id ?? "-")}
+                trạng thái {pumpEventLabel(currentStatus)} · cần bơm {toShortId(session.pump_id)} · chuyến {toShortId(session.trip_id)}
               </div>
               <div className="mt-2">
                 {nextEvent ? (
@@ -217,10 +238,10 @@ export default function PumpCrewMobilePage() {
                     className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-60"
                     onClick={() => void emitNextEvent(session)}
                   >
-                    Gửi event tiếp theo: {nextEvent}
+                    Gửi sự kiện tiếp theo: {pumpEventLabel(nextEvent)}
                   </button>
                 ) : (
-                  <span className="text-xs text-slate-500">Pump session đã hoàn tất.</span>
+                  <span className="text-xs text-slate-500">Phiên bơm đã hoàn tất.</span>
                 )}
               </div>
             </div>
